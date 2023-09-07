@@ -12,6 +12,6 @@ Modeling code adapted from:
 3. [Helw150/Entity-Mover-Distance](https://github.com/Helw150/Entity-Mover-Distance)
 
 ## Prereqs
-```console
+```sh
 pip install -r requirements.txt
 ```
