@@ -5,3 +5,8 @@
 </div>
 
 # Event Coreference Resolution with LLMs
+
+Modeling code adapted from:
+1. [aviclu/CDLM](https://github.com/aviclu/CDLM)
+2. [ahmeshaf/lemma_ce_coref](https://github.com/ahmeshaf/lemma_ce_coref)
+3. [Helw150/Entity-Mover-Distance](https://github.com/Helw150/Entity-Mover-Distance)
