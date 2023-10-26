@@ -133,7 +133,7 @@ class BiEncoder(nn.Module):
             attention_mask=attention_mask,
             global_attention_mask=global_attention_mask,
             position_ids=position_ids,
-            arg1=arg,
+            arg=arg,
         )
         if lm_only:
             return lm_output
