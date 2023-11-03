@@ -15,3 +15,9 @@ Modeling code adapted from:
 ```sh
 pip install -r requirements.txt
 ```
+
+## Getting Started
+
+```sh
+python -m spacy project run ecb-setup
+```
