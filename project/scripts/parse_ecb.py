@@ -262,12 +262,12 @@ def parse_annotations(annotation_folder: Path, output_folder: Path, spacy_model:
             mention["token_start"] = int(sent_token_map[first_token_id]["number"])
             mention["token_end"] = int(sent_token_map[final_token_id]["number"])
             sent_token_map[first_token_id]["text"] = (
-                '<mark id="mark_id"> ' + sent_token_map[first_token_id]["text"]
+                '<m> ' + sent_token_map[first_token_id]["text"]
             )
             if final_token_id not in sent_token_map:
                 print(doc_name)
             sent_token_map[final_token_id]["text"] = (
-                sent_token_map[final_token_id]["text"] + " </mark>"
+                sent_token_map[final_token_id]["text"] + " </m>"
             )
             marked_sentence = " ".join([s["text"] for s in sent_token_map.values()])
             mention["marked_sentence"] = marked_sentence
