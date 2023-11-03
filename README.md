@@ -19,5 +19,9 @@ pip install -r requirements.txt
 ## Getting Started
 
 ```sh
+python -m spacy assets
+```
+
+```sh
 python -m spacy project run ecb-setup
 ```
