@@ -1,0 +1,33 @@
+title: "ECB+GPT Experiments"
+description: ""
+
+vars:
+  gpu: 0
+  ecb-dir: corpus/ecb
+  ecb-mention-map: corpus/ecb/mention_map.pkl
+  doc-sent-map: corpus/ecb/doc_sent_map.pkl
+
+directories:
+  - "assets"
+  - "corpus"
+  - "scripts"
+  - "outputs"
+
+assets:
+  - dest: "assets/ecb"
+    help: "The Event Coref Bank Plus Corpus"
+    git:
+      repo: "https://github.com/cltl/ecbPlus"
+      branch: "master"
+      path: "ECB+_LREC2014"
+
+commands:
+  - name: "ecb-setup"
+    help: "Preprocess and Create mention_map from ECB+ corpus"
+    script:
+      - python -m scripts.parse_ecb parse-annotations assets/ecb ${vars.ecb-dir} en_core_web_lg
+    deps:
+      - assets/ecb
+    outputs:
+      - ${vars.ecb-mention-map}
+      - ${vars.doc-sent-map}
