@@ -19,7 +19,7 @@ pip install -r requirements.txt
 ## Getting Started
 
 ```sh
-python -m spacy assets
+python -m spacy project assets
 ```
 
 ```sh
