@@ -83,7 +83,7 @@ class BiEncoder(nn.Module):
                 input_ids,
                 position_ids=position_ids,
                 attention_mask=attention_mask,
-                global_attention_mask=None,
+                global_attention_mask=global_attention_mask,
             )
         else:
             output = self.model(input_ids, attention_mask=attention_mask)
@@ -131,8 +131,8 @@ class BiEncoder(nn.Module):
         lm_output = self.generate_model_output(
             input_ids,
             attention_mask=attention_mask,
-            global_attention_mask=global_attention_mask,
             position_ids=position_ids,
+            global_attention_mask=global_attention_mask,
             arg=arg,
         )
         if lm_only:
