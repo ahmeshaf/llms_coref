@@ -17,8 +17,9 @@ from tqdm import tqdm
 from coref_prompt_collections import baseline_output_parser, baseline_prompt
 from coval.coval.conll.reader import get_coref_infos
 from coval.coval.eval.evaluator import b_cubed, ceafe, evaluate_documents, lea, muc
-from helper import cluster, generate_key_file
-from heuristic import lh
+
+from .helper import cluster, generate_key_file
+from .heuristic import lh
 
 # global variables
 split_index_map = {"train": 0, "dev": 1, "test": 2}

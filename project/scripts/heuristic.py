@@ -1,8 +1,8 @@
 import pickle
+
 from helper import *
-import string
 from tqdm import tqdm
-import numpy as np
+
 from .nn_method.bi_encoder import BiEncoder
 
 
