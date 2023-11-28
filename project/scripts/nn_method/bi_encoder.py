@@ -1,7 +1,6 @@
 """
 This module contains the implementation of a Bidirectional Encoder (BiEncoder) using the transformers library. 
 """
-
 import os
 from inspect import getfullargspec
 
