@@ -26,7 +26,7 @@ def evaluate(model, mention_dict, selected_keys, device, top_k=10):
 
     # tokenize the dev set
     tokenized_dev_dict = tokenize(tokenizer, selected_keys, mention_dict, m_end_id)
-    dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format("torch")
+    dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format("torch") # list to torch tensor
     dev_dataset = dev_dataset.map(
         lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
         batched=True,
