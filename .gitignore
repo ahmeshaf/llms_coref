@@ -1,8 +1,19 @@
 .DS_Store
+.idea/
+
 .env
+
 __pycache__/
+*.ipynb
+
+assets/
+cache/
+cache_dir/
+corpus/
 datasets/
 llm_results/
+notebooks/
 tmp/
+
 
 

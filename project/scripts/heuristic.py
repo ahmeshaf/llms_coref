@@ -5,6 +5,17 @@ from tqdm import tqdm
 
 from .nn_method.bi_encoder import BiEncoder
 
+from datasets import Dataset
+from torch.utils.data import DataLoader
+
+from .nn_method.helper import (
+    tokenize,
+    get_arg_attention_mask_wrapper,
+    create_faiss_db,
+    VectorDatabase,
+    process_batch,
+)
+
 
 def get_mention_pair_similarity_lemma2(
     mention_pairs, mention_map, relations, threshold=0.05
@@ -419,15 +430,15 @@ def load_biencoder(model_name, linear_weights_path=None):
     -------
     BiEncoder
     """
-    linear_weights = torch.load(linear_weights_path)
     biencoder = BiEncoder(model_name=model_name, is_training=False)
 
     # TODO: Finish this code
+    # TODO: check the way to load the model checkpoints
 
     return biencoder
 
 
-def get_knn_pairs(evt_mention_map, biencoder, top_k):
+def get_knn_pairs(evt_mention_map, split_mention_ids, biencoder, top_k, device="cuda"):
     """
     TODO: run bi-encoder prediction and get candidates cid_map = {eid: [c_ids]}
     TODO: make pairs of [(e_id, c) for eid, cs in cid_map.items() for c in cs]
@@ -442,9 +453,55 @@ def get_knn_pairs(evt_mention_map, biencoder, top_k):
     -------
     List[(str, str)]
     """
+    biencoder.eval()
+    biencoder.to(device)
+
+    tokenizer = biencoder.tokenizer
+    m_start_id = biencoder.start_id
+    m_end_id = biencoder.end_id
+
+    # tokenize the event mentions in the split
+    tokenized_dev_dict = tokenize(
+        tokenizer, split_mention_ids, evt_mention_map, m_end_id
+    )
+    split_dataset = Dataset.from_dict(tokenized_dev_dict).with_format("torch")
+    split_dataset = split_dataset.map(
+        lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
+        batched=True,
+        batch_size=1,
+    )  # to include global attention mask and attention mask for the event mentions
+    split_dataloader = DataLoader(split_dataset, batch_size=1, shuffle=False)
+
+    faiss_db = VectorDatabase()
+    dev_index, _ = create_faiss_db(split_dataset, biencoder, device=device)
+    faiss_db.set_index(dev_index, split_dataset)
+
+    result_list = []
+
+    with torch.no_grad():
+        for batch in tqdm(split_dataloader, desc="Biencoder prediction"):
+            embeddings = process_batch(batch, biencoder, device)
+            negibor_index_list = faiss_db.get_nearest_neighbors(embeddings, top_k)[0][
+                1:
+            ]  # remove the first one which is the query itself
+            candiate_ids = [split_dataset[i]["mention_id"] for i in negibor_index_list]
+            result_list.append((batch["mention_id"][0], candiate_ids))
+
+    # construct mention pairs
+    pair_result_list = set()
+    for e_id, c_ids in result_list:
+        for c_id in c_ids:
+            # sort the pair
+            if e_id > c_id:
+                e_id, c_id = c_id, e_id
+            pair_result_list.add((e_id, c_id))
+
+    pair_result_list = list(pair_result_list)
+
+    return pair_result_list
 
 
-def biencoder_nn(dataset, split, model_name, top_k=10):
+def biencoder_nn(dataset, split, model_name, top_k=10, device="cuda"):
     """
     Generate mention pairs using the k-nearest neighbor approach of Held et al. 2021.
 
@@ -466,11 +523,16 @@ def biencoder_nn(dataset, split, model_name, top_k=10):
     evt_mention_map = {
         m_id: m for m_id, m in mention_map.items() if m["men_type"] == "evt"
     }
+    split_mention_ids = [
+        key for key, val in mention_map.items() if val["split"] == split
+    ]
 
     biencoder = load_biencoder(model_name)
 
     # run the biencoder k-nn on the split
-    all_mention_pairs = get_knn_pairs(evt_mention_map, biencoder, top_k)
+    all_mention_pairs = get_knn_pairs(
+        evt_mention_map, split_mention_ids, biencoder, top_k, device=device
+    )
 
     return all_mention_pairs
 
