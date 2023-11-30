@@ -30,10 +30,9 @@ def get_arg_attention_mask(input_ids, m_start_id, m_end_id):
     """
     input_ids = input_ids.cpu()
     batch_size, seq_len = input_ids.shape
-    
+
     m_start_indicator = input_ids == m_start_id
     m_end_indicator = input_ids == m_end_id
-
 
     m = m_start_indicator + m_end_indicator
     nz_indexes = m.nonzero(as_tuple=True)
@@ -51,9 +50,12 @@ def get_arg_attention_mask(input_ids, m_start_id, m_end_id):
         start_positions[i], end_positions[i] = sequence_token_indices
 
     q = torch.arange(seq_len).repeat(batch_size, 1)
-    msk_0 = q >= start_positions.unsqueeze(1)  # msk_0 marks the start of the mention (inclusive)
-    msk_1 = q <= end_positions.unsqueeze(1)  # msk_1 marks the end of the mention (inclusive)
-    attention_mask_g = (msk_0 & msk_1).int()  # attention_mask_g marks the tokens between the start and end of the mention (inclusive)
+    msk_0 = q >= start_positions.unsqueeze(1)
+    # msk_0 marks the start of the mention (inclusive)
+    msk_1 = q <= end_positions.unsqueeze(1)
+    # msk_1 marks the end of the mention (inclusive)
+    attention_mask_g = (msk_0 & msk_1).int()
+    # attention_mask_g marks the tokens between the start and end of the mention (inclusive)
 
     msk_0_ar = q > start_positions.unsqueeze(1)  # msk_0_ar marks the tokens after the start of the mention (exclusive)
     msk_1_ar = q < end_positions.unsqueeze(1)  # msk_1_ar marks the tokens before the end of the mention (exclusive)
@@ -62,13 +64,14 @@ def get_arg_attention_mask(input_ids, m_start_id, m_end_id):
     return attention_mask_g, arg
 
 
-
 def get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id):
-    input_ids = batch['input_ids']
+    input_ids = batch["input_ids"]
     # get the attention mask for the arguments
-    global_attention_mask, arg_attention_mask = get_arg_attention_mask(input_ids, m_start_id, m_end_id)
-    batch['global_attention_mask'] = global_attention_mask
-    batch['arg_attention_mask'] = arg_attention_mask
+    global_attention_mask, arg_attention_mask = get_arg_attention_mask(
+        input_ids, m_start_id, m_end_id
+    )
+    batch["global_attention_mask"] = global_attention_mask
+    batch["arg_attention_mask"] = arg_attention_mask
     return batch
 
 
@@ -77,8 +80,8 @@ def tokenize(
     mention_ids,
     mention_map,
     m_end,
-    max_sentence_len=1024,
-    text_key="bert_doc",
+    max_sentence_len=None,
+    text_key="marked_doc",
     label_key="gold_cluster",
     truncate=True,
 ):
@@ -98,7 +101,7 @@ def tokenize(
     max_sentence_len : int, optional
         The maximum length of the tokenized sentence. If not provided, defaults to the tokenizer's max length.
     text_key : str, optional
-        The key in mention_map that holds the text to be tokenized. Defaults to 'bert_doc'.
+        The key in mention_map that holds the text to be tokenized. Defaults to 'marked_doc'.
     truncate : bool, optional
         Whether to apply truncation to the tokenized sentences. Defaults to True.
 
@@ -120,7 +123,6 @@ def tokenize(
         instance_list.append(instance)
         instance_label_list.append(str(datapoint[label_key]))
         instance_id_list.append(mention_id)
-        
 
     def truncate_with_mentions(input_ids):
         input_ids_truncated = []
@@ -167,8 +169,8 @@ def tokenize(
                 tokenized_input_ids.shape
             ),
         }
-    tokenized_dict['label'] = instance_label_list
-    tokenized_dict['mention_id'] = instance_id_list
+    tokenized_dict["label"] = instance_label_list
+    tokenized_dict["mention_id"] = instance_id_list
     return tokenized_dict
 
 
@@ -177,13 +179,13 @@ def tokenize_with_postive_condiates(
     mention_ids,
     mention_map,
     m_end,
-    max_sentence_len=1024,
-    text_key="bert_doc",
+    max_sentence_len=None,
+    text_key="marked_doc",
     label_key="gold_cluster",
     truncate=True,
 ):
     """
-    Tokenizes sentences along with their positive candidates, preserving special mention indicators and 
+    Tokenizes sentences along with their positive candidates, preserving special mention indicators and
     applying truncation if required.
 
     Parameters
@@ -216,23 +218,25 @@ def tokenize_with_postive_condiates(
     positive_candidate_gold_label_list = []
     anchor_id_list = []
     doc_start, doc_end = "<doc-s>", "</doc-s>"
-    
 
     for mention_id in mention_ids:
-        anchor= mention_map[mention_id]
+        anchor = mention_map[mention_id]
         anchor_sentence = anchor[text_key]
         anchor_instance = f"<g> {doc_start} {anchor_sentence} {doc_end}"
         anchor_instance_list.append(anchor_instance)
         anchor_gold_label_list.append(str(anchor[label_key]))
         anchor_id_list.append(mention_id)
-        
+
         # Get the positive candidate
-        positive_candidate = random.choice(mention_map[mention_id]['positive_candidates'])
+        positive_candidate = random.choice(
+            mention_map[mention_id]["positive_candidates"]
+        )
         positive_candidate_sentence = positive_candidate[text_key]
-        positive_candidate_instance = f"<g> {doc_start} {positive_candidate_sentence} {doc_end}"
+        positive_candidate_instance = (
+            f"<g> {doc_start} {positive_candidate_sentence} {doc_end}"
+        )
         positive_candidate_instance_list.append(positive_candidate_instance)
         positive_candidate_gold_label_list.append(str(positive_candidate[label_key]))
-        
 
     def truncate_with_mentions(input_ids):
         input_ids_truncated = []
@@ -269,72 +273,90 @@ def tokenize_with_postive_condiates(
     if truncate:
         tokenized_anchor_dict = batch_tokenized(anchor_instance_list)
         tokenized_positive_dict = batch_tokenized(positive_candidate_instance_list)
-       
+
     else:
-      # Tokenize the sentence pairs as single strings if not truncating
-        tokenized_anchor = tokenizer(anchor_instance_list, add_special_tokens=False, padding=True)
+        # Tokenize the sentence pairs as single strings if not truncating
+        tokenized_anchor = tokenizer(
+            anchor_instance_list, add_special_tokens=False, padding=True
+        )
         tokenized_anchor_dict = {
             "input_ids": torch.LongTensor(tokenized_anchor["input_ids"]),
             "attention_mask": torch.LongTensor(tokenized_anchor["attention_mask"]),
-            "position_ids": torch.arange(tokenized_anchor["input_ids"].shape[-1]).expand(
-                tokenized_anchor["input_ids"].shape
-            ),
+            "position_ids": torch.arange(
+                tokenized_anchor["input_ids"].shape[-1]
+            ).expand(tokenized_anchor["input_ids"].shape),
         }
 
-        tokenized_positive = tokenizer(positive_candidate_instance_list, add_special_tokens=False, padding=True)
+        tokenized_positive = tokenizer(
+            positive_candidate_instance_list, add_special_tokens=False, padding=True
+        )
         tokenized_positive_dict = {
             "input_ids": torch.LongTensor(tokenized_positive["input_ids"]),
             "attention_mask": torch.LongTensor(tokenized_positive["attention_mask"]),
-            "position_ids": torch.arange(tokenized_positive["input_ids"].shape[-1]).expand(
-                tokenized_positive["input_ids"].shape
-            ),
+            "position_ids": torch.arange(
+                tokenized_positive["input_ids"].shape[-1]
+            ).expand(tokenized_positive["input_ids"].shape),
         }
-        
-    tokenized_anchor_dict['label'] = anchor_gold_label_list
-    tokenized_positive_dict['label'] = positive_candidate_gold_label_list  
-    tokenized_anchor_dict['mention_id'] = anchor_id_list
+
+    tokenized_anchor_dict["label"] = anchor_gold_label_list
+    tokenized_positive_dict["label"] = positive_candidate_gold_label_list
+    tokenized_anchor_dict["mention_id"] = anchor_id_list
     return tokenized_anchor_dict, tokenized_positive_dict
 
 
-#helper functions
+# helper functions
 @torch.no_grad()
-def generate_embeddings(batch, model, device,):    
-    input_ids = batch['input_ids'].to(device)
-    attention_mask  = batch['attention_mask'].to(device)
-    position_ids = batch['position_ids'].to(device)
-    global_attention_mask = batch['global_attention_mask'].to(device)
-    arg_attention_mask = batch['arg_attention_mask'].to(device)
-    
-    embeddings = model(input_ids, attention_mask=attention_mask, position_ids=position_ids,
-                        global_attention_mask=global_attention_mask, arg=arg_attention_mask, )
-    
+def generate_embeddings(
+    batch,
+    model,
+    device,
+):
+    input_ids = batch["input_ids"].to(device)
+    attention_mask = batch["attention_mask"].to(device)
+    position_ids = batch["position_ids"].to(device)
+    global_attention_mask = batch["global_attention_mask"].to(device)
+    arg_attention_mask = batch["arg_attention_mask"].to(device)
+
+    embeddings = model(
+        input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        global_attention_mask=global_attention_mask,
+        arg=arg_attention_mask,
+    )
+
     # move the embeddings to cpu to save gpu memory
-    batch['embeddings'] = embeddings.cpu()
+    batch["embeddings"] = embeddings.cpu()
     return batch
 
-    
+
 def create_faiss_db(dataset, model, device):
     model = model.to(device)
-    processed_dataset = dataset.map(lambda batch: generate_embeddings(batch, model, device), 
-                                    batched=True, batch_size = 64)
-    
+    processed_dataset = dataset.map(
+        lambda batch: generate_embeddings(batch, model, device),
+        batched=True,
+        batch_size=64,
+    )
 
-    embeddings = processed_dataset['embeddings']
+    embeddings = processed_dataset["embeddings"]
     hidden_size = embeddings.shape[-1]
     embeddings = embeddings.reshape(-1, hidden_size)
     # create the faiss index
     index = faiss.IndexFlatL2(hidden_size)
     index.add(embeddings)
-    
+
     # clean cache
-    
-    return index, processed_dataset,
+
+    return (
+        index,
+        processed_dataset,
+    )
+
 
 class VectorDatabase:
     def __init__(self):
         self.faiss_index = None
         self.dataset = None
-
 
     def set_index(self, faiss_index, dataset):
         self.faiss_index = faiss_index
@@ -351,18 +373,33 @@ class VectorDatabase:
             # print(nearest_neighbors_list)
             for neighbor_idx in neighbors:
                 data_unit = self.dataset[int(neighbor_idx)]
-                if data_unit['label'] != true_label[index]:            
+                if data_unit["label"] != true_label[index]:
                     hard_negatives.append(data_unit)
                     break  # Break after finding the first hard negative
-        
+
         # stack the list of dictionaries into a single dictionary
-        input_id_list = torch.stack([data_unit['input_ids'] for data_unit in hard_negatives])
-        attention_mask_list = torch.stack([data_unit['attention_mask'] for data_unit in hard_negatives])
-        position_ids_list = torch.stack([data_unit['position_ids'] for data_unit in hard_negatives])
-        global_attention_mask_list = torch.stack([data_unit['global_attention_mask'] for data_unit in hard_negatives])
-        arg_attention_mask_list = torch.stack([data_unit['arg_attention_mask'] for data_unit in hard_negatives])
-        return {'input_ids': input_id_list, 'attention_mask': attention_mask_list, 'position_ids': position_ids_list,
-                'global_attention_mask': global_attention_mask_list, 'arg_attention_mask': arg_attention_mask_list}
+        input_id_list = torch.stack(
+            [data_unit["input_ids"] for data_unit in hard_negatives]
+        )
+        attention_mask_list = torch.stack(
+            [data_unit["attention_mask"] for data_unit in hard_negatives]
+        )
+        position_ids_list = torch.stack(
+            [data_unit["position_ids"] for data_unit in hard_negatives]
+        )
+        global_attention_mask_list = torch.stack(
+            [data_unit["global_attention_mask"] for data_unit in hard_negatives]
+        )
+        arg_attention_mask_list = torch.stack(
+            [data_unit["arg_attention_mask"] for data_unit in hard_negatives]
+        )
+        return {
+            "input_ids": input_id_list,
+            "attention_mask": attention_mask_list,
+            "position_ids": position_ids_list,
+            "global_attention_mask": global_attention_mask_list,
+            "arg_attention_mask": arg_attention_mask_list,
+        }
 
     def get_nearest_neighbors(self, anchor_embeddings, k=10):
         """
@@ -386,8 +423,8 @@ class VectorDatabase:
             nearest_neighbors.append(neighbor_data_units)
 
         return nearest_neighbors
-   
- 
+
+
 class CombinedDataset(torch_Dataset):
     def __init__(self, dataset1, dataset2):
         assert len(dataset1) == len(dataset2)
@@ -401,15 +438,20 @@ class CombinedDataset(torch_Dataset):
         item1 = self.dataset1[idx]
         item2 = self.dataset2[idx]
         return item1, item2
-  
-  
+
+
 def process_batch(batch, model, device):
-    input_ids = batch['input_ids'].to(device)
-    attention_mask = batch['attention_mask'].to(device)
-    position_ids = batch['position_ids'].to(device)
-    global_attention_mask = batch['global_attention_mask'].to(device)
-    arg_attention_mask = batch['arg_attention_mask'].to(device)
-    
-    embeddings = model(input_ids, attention_mask=attention_mask, position_ids=position_ids,
-                       global_attention_mask=global_attention_mask, arg=arg_attention_mask)
+    input_ids = batch["input_ids"].to(device)
+    attention_mask = batch["attention_mask"].to(device)
+    position_ids = batch["position_ids"].to(device)
+    global_attention_mask = batch["global_attention_mask"].to(device)
+    arg_attention_mask = batch["arg_attention_mask"].to(device)
+
+    embeddings = model(
+        input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        global_attention_mask=global_attention_mask,
+        arg=arg_attention_mask,
+    )
     return embeddings

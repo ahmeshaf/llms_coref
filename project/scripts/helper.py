@@ -135,7 +135,7 @@ def tokenize(
     mention_map,
     m_end,
     max_sentence_len=1024,
-    text_key="bert_doc",
+    text_key="marked_doc",
     truncate=True,
 ):
     if max_sentence_len is None:

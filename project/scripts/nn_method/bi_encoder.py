@@ -48,6 +48,7 @@ class BiEncoder(nn.Module):
             self.model.resize_token_embeddings(len(self.tokenizer))
         else:
             self.model = AutoModel.from_pretrained(model_name)
+            self.model.eval()
 
         self.start_id = self.tokenizer.encode("<m>", add_special_tokens=False)[0]
         self.end_id = self.tokenizer.encode("</m>", add_special_tokens=False)[0]

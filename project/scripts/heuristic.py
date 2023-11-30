@@ -1,13 +1,14 @@
+import os.path
 import pickle
-
-from helper import *
-from tqdm import tqdm
-
-from .nn_method.bi_encoder import BiEncoder
+import typer
 
 from datasets import Dataset
+from pathlib import Path
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
+from .helper import *
+from .nn_method.bi_encoder import BiEncoder
 from .nn_method.helper import (
     tokenize,
     get_arg_attention_mask_wrapper,
@@ -15,6 +16,8 @@ from .nn_method.helper import (
     VectorDatabase,
     process_batch,
 )
+
+app = typer.Typer()
 
 
 def get_mention_pair_similarity_lemma2(
@@ -387,6 +390,10 @@ def lh_oracle(dataset, threshold=0.05):
         )
 
 
+def lh_predict(dataset_folder, split, threshold=0.05):
+    pass
+
+
 def lh_split(heu, dataset, split, threshold=0.05):
     dataset_folder = f"./datasets/{dataset}/"
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
@@ -438,16 +445,19 @@ def load_biencoder(model_name, linear_weights_path=None):
     return biencoder
 
 
-def get_knn_pairs(evt_mention_map, split_mention_ids, biencoder, top_k, device="cuda"):
+def get_knn_candidate_map(
+    evt_mention_map, split_mention_ids, biencoder, top_k, device="cuda"
+):
     """
     TODO: run bi-encoder prediction and get candidates cid_map = {eid: [c_ids]}
     TODO: make pairs of [(e_id, c) for eid, cs in cid_map.items() for c in cs]
 
     Parameters
     ----------
-    evt_mention_map
-    biencoder
-    top_k:
+    evt_mention_map: Dict
+    split_mention_ids: List[str]
+    biencoder: BiEncoder
+    top_k: int
 
     Returns
     -------
@@ -481,27 +491,16 @@ def get_knn_pairs(evt_mention_map, split_mention_ids, biencoder, top_k, device="
     with torch.no_grad():
         for batch in tqdm(split_dataloader, desc="Biencoder prediction"):
             embeddings = process_batch(batch, biencoder, device)
-            negibor_index_list = faiss_db.get_nearest_neighbors(embeddings, top_k)[0][
+            neighbor_index_list = faiss_db.get_nearest_neighbors(embeddings, top_k)[0][
                 1:
             ]  # remove the first one which is the query itself
-            candiate_ids = [split_dataset[i]["mention_id"] for i in negibor_index_list]
-            result_list.append((batch["mention_id"][0], candiate_ids))
+            candidate_ids = [i["mention_id"] for i in neighbor_index_list]
+            result_list.append((batch["mention_id"][0], candidate_ids))
 
-    # construct mention pairs
-    pair_result_list = set()
-    for e_id, c_ids in result_list:
-        for c_id in c_ids:
-            # sort the pair
-            if e_id > c_id:
-                e_id, c_id = c_id, e_id
-            pair_result_list.add((e_id, c_id))
-
-    pair_result_list = list(pair_result_list)
-
-    return pair_result_list
+    return result_list
 
 
-def biencoder_nn(dataset, split, model_name, top_k=10, device="cuda"):
+def biencoder_nn(dataset_folder, split, model_name, long, top_k=10, device="cuda"):
     """
     Generate mention pairs using the k-nearest neighbor approach of Held et al. 2021.
 
@@ -509,28 +508,28 @@ def biencoder_nn(dataset, split, model_name, top_k=10, device="cuda"):
 
     Parameters
     ----------
-    dataset: str
+    dataset_folder: str
     split: str
     model_name: str
     top_k: int
+    long: bool
 
     Returns
     -------
 
     """
-    dataset_folder = f"./datasets/{dataset}/"
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
     evt_mention_map = {
         m_id: m for m_id, m in mention_map.items() if m["men_type"] == "evt"
     }
     split_mention_ids = [
-        key for key, val in mention_map.items() if val["split"] == split
+        key for key, val in evt_mention_map.items() if val["split"] == split
     ]
 
-    biencoder = load_biencoder(model_name)
+    biencoder = load_biencoder(model_name, long)
 
     # run the biencoder k-nn on the split
-    all_mention_pairs = get_knn_pairs(
+    all_mention_pairs = get_knn_candidate_map(
         evt_mention_map, split_mention_ids, biencoder, top_k, device=device
     )
 
@@ -538,9 +537,4 @@ def biencoder_nn(dataset, split, model_name, top_k=10, device="cuda"):
 
 
 if __name__ == "__main__":
-    lh("ecb", threshold=0.05)
-    # lh_oracle('gvc', threshold=0)
-    # print('------- lh -------')
-    # lh('gvc', threshold=0.04)
-    # print('------- lh oracle -------')
-    # lh_oracle('gvc', threshold=0.04)
+    app()
