@@ -91,19 +91,20 @@ def run_llm_lh(
 
 
 def llm_coref(
-    prediction_pairs: List[Tuple[str, str]],
+    event_pairs: List[Tuple[str, str]],
     mention_map: Dict,
     prompt: PromptTemplate,
     parser: StructuredOutputParser,
     gpt_version: str = "gpt-4",
     save_folder: str = "../../llm_results",
+    text_key: str = "marked_doc",
 ) -> Dict:
     """
     Predict coreference using the LLM (Language Model) for provided event pairs.
 
     Parameters
     ----------
-    prediction_pairs : list of tuple of str
+    event_pairs : list of tuple of str
         A list of event pairs where each pair is represented as a tuple of event IDs.
     mention_map : dict
         A dictionary mapping event IDs to their respective data.
@@ -117,6 +118,7 @@ def llm_coref(
     save_folder : str, optional
         Folder to save the prediction results. Default is "../../llm_results".
 
+
     Returns
     -------
     list of int
@@ -124,7 +126,6 @@ def llm_coref(
     dict
         A dictionary containing detailed prediction results for each event pair,
         including event IDs, event sentences, and parsed predictions.
-    result_dict = defaultdict(dict)
     """
     result_list = []
     result_dict = defaultdict(dict)
@@ -134,7 +135,7 @@ def llm_coref(
     chain = LLMChain(llm=llm, prompt=prompt)
 
     # predict
-    for evt_pair in tqdm(prediction_pairs):
+    for evt_pair in tqdm(event_pairs):
         event1_id = evt_pair[0]
         event2_id = evt_pair[1]
 
@@ -144,8 +145,8 @@ def llm_coref(
         if event1_data is None or event2_data is None:
             continue
 
-        event1 = event1_data["bert_sentence"]
-        event2 = event2_data["bert_sentence"]
+        event1 = event1_data[text_key]
+        event2 = event2_data[text_key]
 
         predict = chain.run(event1=event1, event2=event2)
         predict_dict = parser.parse(predict)
@@ -156,16 +157,17 @@ def llm_coref(
             "event2_id": event2_id,
             "event1": event1,
             "event2": event2,
+            "predict_raw": predict,
             "predict_dict": predict_dict,
         }
 
-    # save the result_dict
+    # Save the result_dict
     if os.path.exists(save_folder) is False:
         os.makedirs(save_folder)
-    save_path = os.path.join(save_folder, "llm_predict_result.pkl")
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    save_path = os.path.join(save_folder, f"{gpt_version}_predict_result_{timestamp}.pkl")
     pickle.dump(result_dict, open(save_path, "wb"))
 
-    # modify the reuslt_list
     result_list = [1 if r == "True" else 0 for r in result_list]
     return result_list, result_dict
 

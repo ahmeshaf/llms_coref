@@ -390,10 +390,6 @@ def lh_oracle(dataset, threshold=0.05):
         )
 
 
-def lh_predict(dataset_folder, split, threshold=0.05):
-    pass
-
-
 def lh_split(heu, dataset, split, threshold=0.05):
     dataset_folder = f"./datasets/{dataset}/"
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
@@ -425,22 +421,22 @@ def lh_split(heu, dataset, split, threshold=0.05):
     return mps, mps_trans
 
 
-def load_biencoder(model_name, linear_weights_path=None):
+def load_biencoder(model_path, long=False, linear_weights_path=None):
     """
 
     Parameters
     ----------
-    model_name: str
+    model_path: str
+    long: bool
     linear_weights_path: str
 
     Returns
     -------
     BiEncoder
     """
-    biencoder = BiEncoder(model_name=model_name, is_training=False)
 
-    # TODO: Finish this code
-    # TODO: check the way to load the model checkpoints
+    biencoder = BiEncoder(model_name=model_path, is_training=False, long=long)
+    # biencoder.load_state_dict(torch.load(model_path))
 
     return biencoder
 

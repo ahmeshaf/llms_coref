@@ -538,7 +538,7 @@ def create_faiss_db(dataset, model, device):
 
     embeddings = processed_dataset["embeddings"]
     hidden_size = embeddings.shape[-1]
-    embeddings = embeddings.reshape(-1, hidden_size)
+    embeddings = embeddings.reshape(-1, hidden_size).cpu().numpy()
     # create the faiss index
     index = faiss.IndexFlatL2(hidden_size)
     index.add(embeddings)
