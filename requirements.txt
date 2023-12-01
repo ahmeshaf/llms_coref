@@ -2,8 +2,11 @@ langchain==0.0.284
 openai==0.27.8
 python-dotenv==1.0.0
 tqdm==4.64.1
+datasets
 spacy
 scipy
 transformers
 bs4
 lxml
+typer
+faiss-cpu

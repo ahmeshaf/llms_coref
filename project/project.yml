@@ -31,3 +31,8 @@ commands:
     outputs:
       - ${vars.ecb-mention-map}
       - ${vars.doc-sent-map}
+
+  - name: "knn-bert"
+    help: "Run the coreference pipeline with KNN filtering and BERT CrossEncoder"
+    script:
+      - python -m scripts.bert_pipeline corpus/ecb/ dev  /home/rehan/workspace/models/roberta_ecb/checkpoint-34000/  /home/rehan/workspace/models/ce_models/ecb_small/ --knn-file ./outputs/knn/dev_map_100.pkl --top-k 10 --ce-score-file ./outputs/ce.pkl

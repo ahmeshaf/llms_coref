@@ -1,7 +1,9 @@
 # Standard Library Imports
 import os
 import pickle
+
 from collections import defaultdict
+from pathlib import Path
 from typing import Any, DefaultDict, Dict, List, Optional, Tuple
 
 # Third-Party Library Imports
@@ -14,12 +16,14 @@ from langchain.chat_models import ChatOpenAI
 from langchain.output_parsers import StructuredOutputParser
 from tqdm import tqdm
 
-from coref_prompt_collections import baseline_output_parser, baseline_prompt
-from coval.coval.conll.reader import get_coref_infos
-from coval.coval.eval.evaluator import b_cubed, ceafe, evaluate_documents, lea, muc
+from coval.conll.reader import get_coref_infos
+from coval.eval.evaluator import b_cubed, ceafe, evaluate_documents, lea, muc
 
+from .coref_prompt_collections import baseline_output_parser, baseline_prompt
 from .helper import cluster, generate_key_file
-from .heuristic import lh
+from .heuristic import lh, lh_split, biencoder_nn
+
+from datetime import datetime
 
 # global variables
 split_index_map = {"train": 0, "dev": 1, "test": 2}
@@ -210,27 +214,78 @@ def evaluate(
     system_key_file = tmp_folder + "/predicted_clusters.keyfile"
     generate_key_file(mid2cluster.items(), "evt", tmp_folder, system_key_file)
 
+    breakpoint()
     # Evaluation on gold and prediction key files.
     doc = read(gold_key_file, system_key_file)
 
     mr, mp, mf = np.round(np.round(evaluate_documents(doc, muc), 3) * 100, 1)
     br, bp, bf = np.round(np.round(evaluate_documents(doc, b_cubed), 3) * 100, 1)
-    cr, cp, cf = np.round(np.round(evaluate_documents(doc, ceafe), 3) * 100, 1)
-    lr, lp, lf = np.round(np.round(evaluate_documents(doc, lea), 3) * 100, 1)
+    # cr, cp, cf = np.round(np.round(evaluate_documents(doc, ceafe), 3) * 100, 1)
+    # lr, lp, lf = np.round(np.round(evaluate_documents(doc, lea), 3) * 100, 1)
 
     results = {
         "MUC": (mr, mp, mf),
         "B-Cubed": (br, bp, bf),
-        "CEAF-E": (cr, cp, cf),
-        "LEA": (lr, lp, lf),
+        # "CEAF-E": (cr, cp, cf),
+        # "LEA": (lr, lp, lf),
     }
 
     return results
 
 
+def get_biencoder_knn(
+    dataset_folder: str,
+    split: str,
+    model_name: str,
+    output_file: Path,
+    top_k: int = 10,
+    device: str = "cuda",
+    long: bool = False,
+):
+    if not output_file.parent.exists():
+        output_file.parent.mkdir(parents=True)
+    candidate_map = biencoder_nn(dataset_folder, split, model_name, long, top_k, device)
+    print(len(candidate_map))
+    pickle.dump(candidate_map, open(output_file, "wb"))
+    return candidate_map
+
 @app.command()
-def run_llm_pipeline(dataset, split, gpt_version, template):
-    pass
+def run_lh_llm_pipeline(dataset_folder: str, split: str, gpt_version, template):
+    """
+
+    Parameters
+    ----------
+    dataset_folder
+    split
+    gpt_version
+    template
+
+    Returns
+    -------
+
+    """
+    # read the mention_map from the dataset_folder
+    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+
+    # Generate event pairs from the split and remove redundant cases using the 'Lemma Heuristic' method.
+    mps, mps_trans = lh_split(heu="lh", dataset="ecb", split=split, threshold=0.05) #TODO: set the dataset default as the `ecb`
+    tps, fps, tns, fns = mps
+    event_pairs = tps + fps
+
+    result_list, _ = llm_coref(
+        event_pairs,
+        mention_map,
+        template,
+        parser, #TODO: figure out a way to pass the parser
+        gpt_version,
+    )
+
+    # evaluate the result
+    result_array = np.array(result_list)
+    evaluate_result = evaluate(mention_map, event_pairs, similarity_matrix=result_array) #TODO: test this function
+
+    return evaluate_result
+
 
 
 if __name__ == "__main__":
