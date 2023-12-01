@@ -35,4 +35,22 @@ commands:
   - name: "knn-bert"
     help: "Run the coreference pipeline with KNN filtering and BERT CrossEncoder"
     script:
-      - python -m scripts.bert_pipeline corpus/ecb/ dev  /home/rehan/workspace/models/roberta_ecb/checkpoint-34000/  /home/rehan/workspace/models/ce_models/ecb_small/ --knn-file ./outputs/knn/dev_map_100.pkl --top-k 10 --ce-score-file ./outputs/ce.pkl
+      - >- 
+        python -m scripts.bert_pipeline run-knn-bert-pipeline 
+        corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/bert
+        /home/rehan/workspace/models/ce_models/ecb_small/ 
+        --knn-file ./outputs/knn/dev_map_100_1.pkl 
+        --top-k 10 
+        --ce-score-file ./outputs/ce.pkl
+        --ce-threshold 0.9
+        --ce-force
+
+  - name: "lh-bert"
+    help: "Run the coref pipeline with Lemma Heuristic and BERT CrossEncoder"
+    script:
+      - >-
+        python -m scripts.bert_pipeline run-lh-bert-pipeline 
+        corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/ 
+        --ce-score-file ./outputs/ce_lh_dev.pkl 
+        --ce-threshold 0.5
+

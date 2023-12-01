@@ -8,9 +8,13 @@ from tqdm import tqdm
 from .nn_method.models import CrossEncoder
 from .nn_method.helper import forward_ab, tokenize_ce
 from .prediction import evaluate, get_biencoder_knn
+from .heuristic import get_lh_pairs
 
 
 app = typer.Typer()
+
+
+# ------------------ HELPERS ------------------ #
 
 
 def predict_ce(parallel_model, dev_ab, dev_ba, device, batch_size):
@@ -39,8 +43,10 @@ def predict_trained_model(
     text_key="bert_doc",
     max_sentence_len=1024,
     long=True,
+    device="cuda:0",
+    batch_size=256,
 ):
-    device = torch.device("cuda:0")
+    device = torch.device(device)
     device_ids = list(range(1))
     linear_weights = torch.load(linear_weights_path)
     scorer_module = CrossEncoder(
@@ -64,7 +70,7 @@ def predict_trained_model(
     )
 
     scores_ab, scores_ba = predict_ce(
-        parallel_model, test_ab, test_ba, device, batch_size=64
+        parallel_model, test_ab, test_ba, device, batch_size=batch_size
     )
 
     return scores_ab, scores_ba
@@ -77,6 +83,7 @@ def get_ce_scores(
     text_key="marked_sentence",
     max_sentence_len=1024,
     is_long=True,
+    device="cuda:0",
 ):
     linear_weights_path = ce_folder + "/linear.chkpt"
     bert_path = ce_folder + "/bert"
@@ -89,8 +96,90 @@ def get_ce_scores(
         text_key,
         max_sentence_len,
         long=is_long,
+        device=device,
     )
     return scores_ab, scores_ba
+
+
+def run_ce(
+    mention_map,
+    split_mention_ids,
+    mention_pairs,
+    ce_folder,
+    text_key="marked_sentence",
+    max_sentence_len=1024,
+    is_long=True,
+    device="cuda:0",
+    ce_score_file: Path = None,
+    ce_threshold: float = 0.5,
+    ce_force: bool = False,
+):
+    # generate the intermediate ce_scores to be used for clustering
+    if ce_score_file.exists() and not ce_force:
+        ce_scores_ab, ce_scores_ba = pickle.load(open(ce_score_file, "rb"))
+    else:
+        ce_scores_ab, ce_scores_ba = get_ce_scores(
+            mention_map,
+            mention_pairs,
+            ce_folder,
+            text_key=text_key,
+            is_long=is_long,
+            max_sentence_len=max_sentence_len,
+            device=device,
+        )
+        pickle.dump((ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb"))
+
+    predictions = (ce_scores_ab + ce_scores_ba)/2
+    similarities = torch.squeeze(predictions) > ce_threshold
+
+    scores = evaluate(mention_map, split_mention_ids, mention_pairs, similarities, tmp_folder=ce_folder)
+    print(scores)
+
+
+# ------------------------- Commands ----------------------- #
+
+
+@app.command()
+def run_lh_bert_pipeline(
+    dataset_folder: str,
+    split: str,
+    ce_folder: str,
+    device: str = "cuda:0",
+    max_sentence_len: int = None,
+    is_long: bool = False,
+    lh: str = "lh",
+    lh_threshold: float = 0.05,
+    ce_score_file: Path = None,
+    ce_text_key: str = "marked_sentence",
+    ce_threshold: float = 0.5,
+    ce_force: bool = False,
+):
+    # read split mention map
+    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+    split_mention_ids = [
+        m_id
+        for m_id, m in mention_map.items()
+        if m["men_type"] == "evt" and m["split"] == split
+    ]
+
+    m_pairs, _ = get_lh_pairs(mention_map, split, lh, lh_threshold)
+
+    # get the true positives and false positives
+    mention_pairs = m_pairs[0] + m_pairs[1]
+
+    run_ce(
+        mention_map,
+        split_mention_ids,
+        mention_pairs,
+        ce_folder,
+        ce_text_key,
+        max_sentence_len,
+        is_long,
+        device,
+        ce_score_file,
+        ce_threshold,
+        ce_force,
+    )
 
 
 @app.command()
@@ -104,8 +193,10 @@ def run_knn_bert_pipeline(
     device: str = "cuda:0",
     max_sentence_len: int = None,
     is_long: bool = False,
+    ce_text_key: str = "marked_sentence",
     ce_score_file: Path = None,
     ce_threshold: float = 0.5,
+    ce_force: bool = False,
 ):
     """
     Main Experiment Pipeline:
@@ -122,8 +213,10 @@ def run_knn_bert_pipeline(
     device: str
     max_sentence_len: int
     is_long: bool
+    ce_text_key: str
     ce_score_file: Path (cache file to save the intermediate ce scores)
     ce_threshold: float
+    ce_force: bool
 
     Returns
     -------
@@ -154,23 +247,19 @@ def run_knn_bert_pipeline(
             mention_pairs.add((e_id, c_id))
     mention_pairs = sorted(list(mention_pairs))
 
-    # generate the intermediate ce_scores to be used for clustering
-    if ce_score_file.exists():
-        ce_scores_ab, ce_scores_ba = pickle.load(open(ce_score_file, "rb"))
-    else:
-        ce_scores_ab, ce_scores_ba = get_ce_scores(
-            mention_map,
-            mention_pairs,
-            ce_folder,
-            is_long=is_long,
-            max_sentence_len=max_sentence_len,
-        )
-        pickle.dump((ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb"))
-
-    similarities = torch.squeeze(ce_scores_ab + ce_scores_ba) / 2 > ce_threshold
-
-    scores = evaluate(mention_map, mention_pairs, similarities, tmp_folder=ce_folder)
-    print(scores)
+    run_ce(
+        mention_map,
+        split_mention_ids,
+        mention_pairs,
+        ce_folder,
+        ce_text_key,
+        max_sentence_len,
+        is_long,
+        device,
+        ce_score_file,
+        ce_threshold,
+        ce_force,
+    )
 
 
 if __name__ == "__main__":

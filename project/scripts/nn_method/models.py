@@ -67,7 +67,7 @@ class CrossEncoder(nn.Module):
             output = self.model(input_ids, attention_mask=attention_mask)
 
         last_hidden_states = output.last_hidden_state
-        cls_vector = output.pooler_output
+        cls_vector = output.last_hidden_state[:, 0, :]
 
         arg1_vec = None
         if arg1 is not None:

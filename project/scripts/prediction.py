@@ -165,7 +165,9 @@ def llm_coref(
     if os.path.exists(save_folder) is False:
         os.makedirs(save_folder)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-    save_path = os.path.join(save_folder, f"{gpt_version}_predict_result_{timestamp}.pkl")
+    save_path = os.path.join(
+        save_folder, f"{gpt_version}_predict_result_{timestamp}.pkl"
+    )
     pickle.dump(result_dict, open(save_path, "wb"))
 
     result_list = [1 if r == "True" else 0 for r in result_list]
@@ -174,9 +176,10 @@ def llm_coref(
 
 def evaluate(
     mention_map: Dict[str, Dict[str, str]],
+    split_mention_ids: List[str],
     prediction_pairs: List[Tuple[str, str]],
     similarity_matrix: np.ndarray,
-    tmp_folder: str = "../../tmp/",
+    tmp_folder: str = "/tmp/",
 ) -> Dict[str, Tuple[float, float, float]]:
     """
     Evaluate the prediction results using various coreference resolution metrics.
@@ -185,6 +188,8 @@ def evaluate(
     ----------
     mention_map : dict
         A mapping of mentions to their attributes. Each attribute should have a 'gold_cluster' key.
+    split_mention_ids: List[str]
+        mention ids of current split
     prediction_pairs : list of tuple
         List of tuples representing predicted pairs of mentions.
     similarity_matrix : np.ndarray
@@ -202,21 +207,19 @@ def evaluate(
         - 'LEA': (recall, precision, f-score)
     """
     # Create the key file with gold clusters from mention map
-    curr_mentions = sorted(mention_map.keys())
     curr_gold_cluster_map = [
-        (men, mention_map[men]["gold_cluster"]) for men in curr_mentions
+        (men, mention_map[men]["gold_cluster"]) for men in split_mention_ids
     ]
     gold_key_file = tmp_folder + "/gold_clusters.keyfile"
     generate_key_file(curr_gold_cluster_map, "evt", tmp_folder, gold_key_file)
 
     # Run clustering using prediction_pairs and similarity_matrix
-    mid2cluster = cluster(curr_mentions, prediction_pairs, similarity_matrix)
+    mid2cluster = cluster(split_mention_ids, prediction_pairs, similarity_matrix)
 
     # Create a predictions key file
     system_key_file = tmp_folder + "/predicted_clusters.keyfile"
     generate_key_file(mid2cluster.items(), "evt", tmp_folder, system_key_file)
 
-    breakpoint()
     # Evaluation on gold and prediction key files.
     doc = read(gold_key_file, system_key_file)
 
@@ -251,6 +254,7 @@ def get_biencoder_knn(
     pickle.dump(candidate_map, open(output_file, "wb"))
     return candidate_map
 
+
 @app.command()
 def run_lh_llm_pipeline(dataset_folder: str, split: str, gpt_version, template):
     """
@@ -270,7 +274,9 @@ def run_lh_llm_pipeline(dataset_folder: str, split: str, gpt_version, template):
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
 
     # Generate event pairs from the split and remove redundant cases using the 'Lemma Heuristic' method.
-    mps, mps_trans = lh_split(heu="lh", dataset="ecb", split=split, threshold=0.05) #TODO: set the dataset default as the `ecb`
+    mps, mps_trans = lh_split(
+        heu="lh", dataset="ecb", split=split, threshold=0.05
+    )  # TODO: set the dataset default as the `ecb`
     tps, fps, tns, fns = mps
     event_pairs = tps + fps
 
@@ -278,16 +284,17 @@ def run_lh_llm_pipeline(dataset_folder: str, split: str, gpt_version, template):
         event_pairs,
         mention_map,
         template,
-        parser, #TODO: figure out a way to pass the parser
+        parser,  # TODO: figure out a way to pass the parser
         gpt_version,
     )
 
     # evaluate the result
     result_array = np.array(result_list)
-    evaluate_result = evaluate(mention_map, event_pairs, similarity_matrix=result_array) #TODO: test this function
+    evaluate_result = evaluate(
+        mention_map, event_pairs, similarity_matrix=result_array
+    )  # TODO: test this function
 
     return evaluate_result
-
 
 
 if __name__ == "__main__":

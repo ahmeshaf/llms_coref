@@ -390,6 +390,38 @@ def lh_oracle(dataset, threshold=0.05):
         )
 
 
+def get_lh_pairs(mention_map, split, heu="lh", lh_threshold=0.15, lemma_pairs=None):
+    evt_mention_map = {
+        m_id: m for m_id, m in mention_map.items() if m["men_type"] == "evt"
+    }
+    split_mention_pairs_labels = get_all_mention_pairs_labels_split(
+        evt_mention_map, split
+    )
+
+    if heu == "lh":
+        train_mention_pairs_labels = get_all_mention_pairs_labels_split(
+            evt_mention_map, "train"
+        )
+        train_syn_lemma_pairs = get_lemma_pairs_labels(
+            evt_mention_map, train_mention_pairs_labels
+        )
+        split_syn_lemma_pairs = set([p for p, l in train_syn_lemma_pairs if l == 1])
+    else:
+        split_syn_lemma_pairs = get_lemma_pairs_labels(
+            evt_mention_map, split_mention_pairs_labels
+        )
+        split_syn_lemma_pairs = set([p for p, l in split_syn_lemma_pairs if l == 1])
+
+    if lemma_pairs is not None:
+        split_syn_lemma_pairs = lemma_pairs
+
+    pairs, labels = zip(*split_mention_pairs_labels)
+    (m_pairs, m_pairs_trans) = generate_tp_fp_tn_fn(
+        pairs, np.array(labels), mention_map, split_syn_lemma_pairs, threshold=lh_threshold
+    )
+    return m_pairs, m_pairs_trans
+
+
 def lh_split(heu, dataset, split, threshold=0.05):
     dataset_folder = f"./datasets/{dataset}/"
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
