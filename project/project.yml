@@ -39,11 +39,11 @@ commands:
         python -m scripts.bert_pipeline run-knn-bert-pipeline 
         corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/bert
         /home/rehan/workspace/models/ce_models/ecb_small/ 
-        --knn-file ./outputs/knn/dev_map_100_1.pkl 
+        --knn-file ./outputs/knn/dev_map_100_neigh_3.pkl 
         --top-k 10 
-        --ce-score-file ./outputs/ce.pkl
-        --ce-threshold 0.9
-        --ce-force
+        --ce-score-file ./outputs/ce_neigh_3.pkl
+        --ce-threshold 0.5
+        --ce-text-key neighbors_3
 
   - name: "lh-bert"
     help: "Run the coref pipeline with Lemma Heuristic and BERT CrossEncoder"

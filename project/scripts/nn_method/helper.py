@@ -81,7 +81,7 @@ def get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id):
     return batch
 
 
-def tokenize(
+def tokenize_bi(
     tokenizer,
     mention_ids,
     mention_map,
@@ -124,7 +124,7 @@ def tokenize(
 
     for mention_id in mention_ids:
         datapoint = mention_map[mention_id]
-        sentence = datapoint[text_key]
+        sentence = get_context(datapoint, text_key)
         instance = f"<g> {doc_start} {sentence} {doc_end}"
         instance_list.append(instance)
         instance_label_list.append(str(datapoint[label_key]))
@@ -227,7 +227,7 @@ def tokenize_with_postive_condiates(
 
     for mention_id in mention_ids:
         anchor = mention_map[mention_id]
-        anchor_sentence = anchor[text_key]
+        anchor_sentence = sentence = get_context(anchor, text_key)
         anchor_instance = f"<g> {doc_start} {anchor_sentence} {doc_end}"
         anchor_instance_list.append(anchor_instance)
         anchor_gold_label_list.append(str(anchor[label_key]))
@@ -237,7 +237,7 @@ def tokenize_with_postive_condiates(
         positive_candidate = random.choice(
             mention_map[mention_id]["positive_candidates"]
         )
-        positive_candidate_sentence = positive_candidate[text_key]
+        positive_candidate_sentence = get_context(positive_candidate, text_key)
         positive_candidate_instance = (
             f"<g> {doc_start} {positive_candidate_sentence} {doc_end}"
         )
@@ -394,12 +394,31 @@ def forward_ab(parallel_model, ab_dict, device, indices, lm_only=False):
     )
 
 
+def get_context(m_dict, text_key):
+    if text_key in {"marked_sentence", "marked_doc"}:
+        return m_dict[text_key]
+    elif text_key.startswith("neighbors"):
+        neighbor_count = int(text_key.split("_")[-1])
+        neighbors_left = m_dict["neighbors_left"]
+        neighbors_right = m_dict["neighbors_right"]
+        sent_neighbors = (
+            neighbors_left[:neighbor_count]
+            + [m_dict["marked_sentence"]]
+            + neighbors_right[:neighbor_count]
+        )
+        return "\n".join(sent_neighbors)
+    else:
+        raise ValueError(
+            "Invalid text_key. It should be either marked_doc, marked_sentence or of the form neighbors_n"
+        )
+
+
 def tokenize_ce(
     tokenizer,
     mention_pairs,
     mention_map,
     m_end,
-    max_sentence_len=1024,
+    max_sentence_len=None,
     text_key="bert_doc",
     truncate=True,
 ):
@@ -413,8 +432,8 @@ def tokenize_ce(
     doc_end = "</doc-s>"
 
     for m1, m2 in mention_pairs:
-        sentence_a = mention_map[m1][text_key]
-        sentence_b = mention_map[m2][text_key]
+        sentence_a = get_context(mention_map[m1], text_key)
+        sentence_b = get_context(mention_map[m2], text_key)
 
         def make_instance(sent_a, sent_b):
             return " ".join(["<g>", doc_start, sent_a, doc_end]), " ".join(

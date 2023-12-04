@@ -10,7 +10,7 @@ from tqdm import tqdm
 from .helper import *
 from .nn_method.bi_encoder import BiEncoder
 from .nn_method.helper import (
-    tokenize,
+    tokenize_bi,
     get_arg_attention_mask_wrapper,
     create_faiss_db,
     VectorDatabase,
@@ -417,7 +417,11 @@ def get_lh_pairs(mention_map, split, heu="lh", lh_threshold=0.15, lemma_pairs=No
 
     pairs, labels = zip(*split_mention_pairs_labels)
     (m_pairs, m_pairs_trans) = generate_tp_fp_tn_fn(
-        pairs, np.array(labels), mention_map, split_syn_lemma_pairs, threshold=lh_threshold
+        pairs,
+        np.array(labels),
+        mention_map,
+        split_syn_lemma_pairs,
+        threshold=lh_threshold,
     )
     return m_pairs, m_pairs_trans
 
@@ -474,7 +478,12 @@ def load_biencoder(model_path, long=False, linear_weights_path=None):
 
 
 def get_knn_candidate_map(
-    evt_mention_map, split_mention_ids, biencoder, top_k, device="cuda"
+    evt_mention_map,
+    split_mention_ids,
+    biencoder,
+    top_k,
+    device="cuda",
+    text_key="marked_sentence",
 ):
     """
     TODO: run bi-encoder prediction and get candidates cid_map = {eid: [c_ids]}
@@ -499,8 +508,8 @@ def get_knn_candidate_map(
     m_end_id = biencoder.end_id
 
     # tokenize the event mentions in the split
-    tokenized_dev_dict = tokenize(
-        tokenizer, split_mention_ids, evt_mention_map, m_end_id
+    tokenized_dev_dict = tokenize_bi(
+        tokenizer, split_mention_ids, evt_mention_map, m_end_id, text_key=text_key
     )
     split_dataset = Dataset.from_dict(tokenized_dev_dict).with_format("torch")
     split_dataset = split_dataset.map(
@@ -528,7 +537,9 @@ def get_knn_candidate_map(
     return result_list
 
 
-def biencoder_nn(dataset_folder, split, model_name, long, top_k=10, device="cuda"):
+def biencoder_nn(
+    dataset_folder, split, model_name, long, top_k=10, device="cuda", text_key=None
+):
     """
     Generate mention pairs using the k-nearest neighbor approach of Held et al. 2021.
 
@@ -558,7 +569,12 @@ def biencoder_nn(dataset_folder, split, model_name, long, top_k=10, device="cuda
 
     # run the biencoder k-nn on the split
     all_mention_pairs = get_knn_candidate_map(
-        evt_mention_map, split_mention_ids, biencoder, top_k, device=device
+        evt_mention_map,
+        split_mention_ids,
+        biencoder,
+        top_k,
+        text_key=text_key,
+        device=device,
     )
 
     return all_mention_pairs

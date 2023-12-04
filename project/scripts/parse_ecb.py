@@ -130,23 +130,24 @@ def mention2task(mention, copy_keys=None):
             task[key] = mention[key]
 
     p_task = {
-        'text': mention['sentence'],
-
-        'spans': [{
-            'token_start': mention['token_start'],
-            'token_end': mention['token_end'],
-            'start': mention['start_char'],
-            'end': mention['end_char'],
-            'label': mention['men_type'].upper(),
-        }],
-
-        'meta': {
-            'Doc': mention['doc_id'],
-            'Sentence': mention['sentence_id'],
-        }
+        "text": mention["sentence"],
+        "spans": [
+            {
+                "token_start": mention["token_start"],
+                "token_end": mention["token_end"],
+                "start": mention["start_char"],
+                "end": mention["end_char"],
+                "label": mention["men_type"].upper(),
+            }
+        ],
+        "meta": {
+            "Doc": mention["doc_id"],
+            "Sentence": mention["sentence_id"],
+        },
     }
 
     return {**task, **p_task}
+
 
 # ------------------------------- Commands ----------------------------- #
 
@@ -192,7 +193,9 @@ def parse_annotations(annotation_folder: Path, output_folder: Path, spacy_model:
     for ann_file in tqdm(
         list(glob.glob(ecb_plus_folder + "/*/*.xml")), desc="Reading ECB Corpus"
     ):
-        ann_bs = BeautifulSoup(open(ann_file, "r", encoding="utf-8").read(), features="lxml")
+        ann_bs = BeautifulSoup(
+            open(ann_file, "r", encoding="utf-8").read(), features="lxml"
+        )
         doc_name = ann_bs.find("document")["doc_name"]
         topic = doc_name.split("_")[0]
         # add document in doc_sent_map
@@ -262,7 +265,7 @@ def parse_annotations(annotation_folder: Path, output_folder: Path, spacy_model:
             mention["token_start"] = int(sent_token_map[first_token_id]["number"])
             mention["token_end"] = int(sent_token_map[final_token_id]["number"])
             sent_token_map[first_token_id]["text"] = (
-                '<m> ' + sent_token_map[first_token_id]["text"]
+                "<m> " + sent_token_map[first_token_id]["text"]
             )
             if final_token_id not in sent_token_map:
                 print(doc_name)
@@ -277,6 +280,17 @@ def parse_annotations(annotation_folder: Path, output_folder: Path, spacy_model:
             doc_sent_map_copy[sent_id]["sentence"] = marked_sentence
             marked_doc = "\n".join([s["sentence"] for s in doc_sent_map_copy.values()])
             mention["marked_doc"] = marked_doc
+
+            neighbors = marked_doc.split(marked_sentence)
+            neighbors_left =[
+                sen.strip() for sen in neighbors[0].split("\n") if sen.strip() != ""
+            ]
+            neighbors_right = [
+                sen.strip() for sen in neighbors[1].split("\n") if sen.strip() != ""
+            ]
+
+            mention["neighbors_left"] = neighbors_left
+            mention["neighbors_right"] = neighbors_right
 
             # coref_id
             if m_id in relation_map:
@@ -295,7 +309,7 @@ def parse_annotations(annotation_folder: Path, output_folder: Path, spacy_model:
 
             # add into mention map
             mention_id = doc_name + "_" + m_id
-            mention['mention_id'] = mention_id
+            mention["mention_id"] = mention_id
             mention_map[mention_id] = mention
 
     nlp = spacy.load(spacy_model)
@@ -344,23 +358,25 @@ def parse_annotations(annotation_folder: Path, output_folder: Path, spacy_model:
 
 
 @app.command()
-def create_evt_tasks(
-        mention_map_path: Path,
-        output_path: Path,
-        split: str
-):
+def create_evt_tasks(mention_map_path: Path, output_path: Path, split: str):
     if not output_path.parent.exists():
         output_path.parent.mkdir()
-    mention_map = pickle.load(open(mention_map_path, 'rb'))
+    mention_map = pickle.load(open(mention_map_path, "rb"))
     for m_id, mention in mention_map.items():
-        mention['mention_id'] = m_id
-    evt_mentions = sorted([v for v in mention_map.values() if v['split'] == split and v['men_type'] == 'evt'],
-                          key=lambda x: (x['doc_id'], int(x['sentence_id'])))
+        mention["mention_id"] = m_id
+    evt_mentions = sorted(
+        [
+            v
+            for v in mention_map.values()
+            if v["split"] == split and v["men_type"] == "evt"
+        ],
+        key=lambda x: (x["doc_id"], int(x["sentence_id"])),
+    )
     evt_tasks = [mention2task(men, TASK_KEYS) for men in evt_mentions]
 
-    json.dump(evt_tasks, open(output_path, 'w'), indent=1)
+    json.dump(evt_tasks, open(output_path, "w"), indent=1)
 
-    print(f'Saved {len(evt_mentions)} event mentions!')
+    print(f"Saved {len(evt_mentions)} event mentions!")
 
 
 if __name__ == "__main__":

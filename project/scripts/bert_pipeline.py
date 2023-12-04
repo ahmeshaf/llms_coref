@@ -129,10 +129,16 @@ def run_ce(
         )
         pickle.dump((ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb"))
 
-    predictions = (ce_scores_ab + ce_scores_ba)/2
+    predictions = (ce_scores_ab + ce_scores_ba) / 2
     similarities = torch.squeeze(predictions) > ce_threshold
 
-    scores = evaluate(mention_map, split_mention_ids, mention_pairs, similarities, tmp_folder=ce_folder)
+    scores = evaluate(
+        mention_map,
+        split_mention_ids,
+        mention_pairs,
+        similarities,
+        tmp_folder=ce_folder,
+    )
     print(scores)
 
 
@@ -154,6 +160,7 @@ def run_lh_bert_pipeline(
     ce_threshold: float = 0.5,
     ce_force: bool = False,
 ):
+    ensure_path(ce_score_file)
     # read split mention map
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
     split_mention_ids = [
@@ -180,6 +187,11 @@ def run_lh_bert_pipeline(
         ce_threshold,
         ce_force,
     )
+
+
+def ensure_path(file: Path):
+    if not file.parent.exists():
+        file.parent.mkdir(parents=True)
 
 
 @app.command()
@@ -223,6 +235,8 @@ def run_knn_bert_pipeline(
 
     """
     # read split mention map
+    ensure_path(ce_score_file)
+    ensure_path(knn_file)
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
     split_mention_ids = [
         m_id
@@ -235,7 +249,14 @@ def run_knn_bert_pipeline(
         knn_map = pickle.load(open(knn_file, "rb"))
     else:
         knn_map = get_biencoder_knn(
-            dataset_folder, split, model_name, knn_file, 100, device, is_long
+            dataset_folder,
+            split,
+            model_name,
+            knn_file,
+            ce_text_key=ce_text_key,
+            top_k=100,
+            device=device,
+            long=is_long,
         )
 
     # generate target-candidate mention pairs
