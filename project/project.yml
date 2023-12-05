@@ -6,6 +6,9 @@ vars:
   ecb-dir: corpus/ecb
   ecb-mention-map: corpus/ecb/mention_map.pkl
   doc-sent-map: corpus/ecb/doc_sent_map.pkl
+  augment-context-path: corpus/ecb/mention_map_with_context.pkl
+  augment-candidates-path: corpus/ecb/mention_map_with_candidates.pkl
+  label-group-path: corpus/ecb/label_group.pkl
   model-save-path: outputs/models/biencoder/
 
 directories:
@@ -33,6 +36,16 @@ commands:
       - ${vars.ecb-mention-map}
       - ${vars.doc-sent-map}
 
+  - name: "augment-context"
+    help: "Augments the mention map with context from the document-sentence map."
+    script:
+      - python -m scripts.augment_ecb augment-context ${vars.ecb-mention-map} ${vars.doc-sent-map} --save-path ${vars.augment-context-path}
+
+  - name: "augment-candidates"
+    help: "Adds candidates to the mention map and groups mentions by label."
+    script:
+      - python -m scripts.augment_ecb augment-candidates ${vars.ecb-mention-map} --map-save-path ${vars.augment-candidates-path} --label-group-save-path ${vars.label-group-path}
+
   - name: "train_biencoder"
     help: "Train the biencoder model on ECB+ corpus"
     script:
@@ -40,7 +53,7 @@ commands:
         python -m scripts.nn_method.train_biencoder train-biencoder
         --batch_size 2
         --epochs 10
-        --save_path ${vars.model_save_path} 
+        --save_path ${vars.model-save-path} 
 
   - name: "knn-bert"
     help: "Run the coreference pipeline with KNN filtering and BERT CrossEncoder"
