@@ -1,6 +1,8 @@
+import pickle
+
 import torch
 import torch.nn.functional as F
-
+import typer
 from datasets import Dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
@@ -16,6 +18,8 @@ from .helper import (
     tokenize_with_postive_condiates,
 )
 
+app = typer.Typer()
+
 
 def evaluate(model, mention_dict, selected_keys, device, top_k=10):
     # check the model is on the specified device
@@ -26,12 +30,14 @@ def evaluate(model, mention_dict, selected_keys, device, top_k=10):
 
     # tokenize the dev set
     tokenized_dev_dict = tokenize_bi(tokenizer, selected_keys, mention_dict, m_end_id)
-    dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format("torch") # list to torch tensor
+    dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format(
+        "torch"
+    )  # list to torch tensor
     dev_dataset = dev_dataset.map(
         lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
         batched=True,
         batch_size=1,
-    ) # contains embs
+    )  # contains embs
     dev_dataloader = DataLoader(dev_dataset, batch_size=1, shuffle=False)
 
     faiss_db = VectorDatabase()
@@ -72,11 +78,11 @@ def evaluate(model, mention_dict, selected_keys, device, top_k=10):
 
 def train(
     mention_dict,
-    selected_keys,
-    dev_mention_dict,
+    train_selected_keys,
     dev_selected_keys,
     batch_size=2,
     epochs=1,
+    save_path="../models/bi_encoder/",
 ):
     # Initialize the model and tokenizer
     bi_encoder = BiEncoder()
@@ -86,7 +92,7 @@ def train(
 
     # Tokenize anchors and positive candidates
     tokenized_anchor_dict, tokenized_positive_dict = tokenize_with_postive_condiates(
-        tokenizer, selected_keys, mention_dict, m_end_id
+        tokenizer, train_selected_keys, mention_dict, m_end_id
     )
 
     # Prepare datasets
@@ -134,7 +140,7 @@ def train(
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
 
     # start the evaluation
-    evaluate(model, dev_mention_dict, dev_selected_keys, device)
+    evaluate(model, mention_dict, dev_selected_keys, device)
 
     # Training loop
     model.train()
@@ -173,7 +179,7 @@ def train(
         # Save the model
         torch.save(
             model.state_dict(),
-            f"/home/zhiyong/Projects/llms_coref/project/bi_encoder_{epoch}.pt",
+            f"{save_path}bi_encoder_{epoch}.pt",
         )
 
         # Update the FAISS database
@@ -184,40 +190,38 @@ def train(
             print(f"Error updating FAISS database at Epoch {epoch + 1}: {e}")
 
         # Evaluate the model
-        evaluate(model, dev_mention_dict, dev_selected_keys, device)
+        evaluate(model, mention_dict, dev_selected_keys, device)
 
     return model
 
 
-if __name__ == "__main__":
-    import pickle
+@app.command()
+def train_biencoder(batch_size: int = 2, epochs: int = 10, save_path: str = "model_save_path"):
+    # Load the training and developing data
+    with open("../../corpus/ecb/mention_map.pkl", "rb") as f:
+        mention_map = pickle.load(f)
 
-    # Load the training data
-    with open(
-        "/home/zhiyong/Projects/llms_coref/project/corpus/ecb/filtered_mention_map_train.pkl",
-        "rb",
-    ) as f:
-        mention_dict = pickle.load(f)
-    selected_keys = list(mention_dict.keys())
+    train_split_ids = [
+        m_id
+        for m_id, m in mention_map.items()
+        if m["men_type"] == "evt" and m["split"] == "train"
+    ]
+    dev_selected_ids = [
+        m_id
+        for m_id, m in mention_map.items()
+        if m["men_type"] == "evt" and m["split"] == "dev"
+    ]
 
-    # Load the dev data
-    with open(
-        "/home/zhiyong/Projects/llms_coref/project/corpus/ecb/filtered_mention_map_dev.pkl",
-        "rb",
-    ) as f:
-        dev_mention_dict = pickle.load(f)
-    dev_selected_keys = list(dev_mention_dict.keys())
-
+    # Use arguments in the train function
     trained_model = train(
-        mention_dict,
-        selected_keys,
-        dev_mention_dict,
-        dev_selected_keys,
-        batch_size=2,
-        epochs=10,
+        mention_map,
+        train_split_ids,
+        dev_selected_ids,
+        batch_size=batch_size,
+        epochs=epochs,
+        save_path=save_path,
     )
-    # Save the trained model
-    torch.save(
-        trained_model.state_dict(),
-        "/home/zhiyong/Projects/llms_coref/project/bi_encoder.pt",
-    )
+
+
+if __name__ == "__main__":
+    app()

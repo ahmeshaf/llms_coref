@@ -6,6 +6,7 @@ vars:
   ecb-dir: corpus/ecb
   ecb-mention-map: corpus/ecb/mention_map.pkl
   doc-sent-map: corpus/ecb/doc_sent_map.pkl
+  model-save-path: outputs/models/biencoder/
 
 directories:
   - "assets"
@@ -31,6 +32,15 @@ commands:
     outputs:
       - ${vars.ecb-mention-map}
       - ${vars.doc-sent-map}
+
+  - name: "train_biencoder"
+    help: "Train the biencoder model on ECB+ corpus"
+    script:
+      - >- 
+        python -m scripts.nn_method.train_biencoder train-biencoder
+        --batch_size 2
+        --epochs 10
+        --save_path ${vars.model_save_path} 
 
   - name: "knn-bert"
     help: "Run the coreference pipeline with KNN filtering and BERT CrossEncoder"
