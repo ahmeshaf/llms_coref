@@ -21,7 +21,7 @@ from coval.eval.evaluator import b_cubed, ceafe, evaluate_documents, lea, muc
 
 from .coref_prompt_collections import baseline_output_parser, baseline_prompt
 from .helper import cluster, generate_key_file
-from .heuristic import lh, lh_split, biencoder_nn
+from .heuristic import lh, biencoder_nn, get_lh_pairs
 
 from datetime import datetime
 
@@ -275,9 +275,7 @@ def run_lh_llm_pipeline(dataset_folder: str, split: str, gpt_version, template):
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
 
     # Generate event pairs from the split and remove redundant cases using the 'Lemma Heuristic' method.
-    mps, mps_trans = lh_split(
-        heu="lh", dataset="ecb", split=split, threshold=0.05
-    )  # TODO: set the dataset default as the `ecb`
+    mps, mps_trans = get_lh_pairs(mention_map, split, heu="lh", lh_threshold=0.05)
     tps, fps, tns, fns = mps
     event_pairs = tps + fps
 
