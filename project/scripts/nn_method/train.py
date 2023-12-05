@@ -80,6 +80,8 @@ def train(
     mention_dict,
     train_selected_keys,
     dev_selected_keys,
+    text_key="marked_doc",
+    learning_rate=0.00001,
     batch_size=2,
     epochs=1,
     save_path="../models/bi_encoder/",
@@ -92,7 +94,7 @@ def train(
 
     # Tokenize anchors and positive candidates
     tokenized_anchor_dict, tokenized_positive_dict = tokenize_with_postive_condiates(
-        tokenizer, train_selected_keys, mention_dict, m_end_id
+        tokenizer, train_selected_keys, mention_dict, m_end_id, text_key=text_key
     )
 
     # Prepare datasets
@@ -137,7 +139,7 @@ def train(
         swap=False,
         reduction="mean",
     )
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
 
     # start the evaluation
     evaluate(model, mention_dict, dev_selected_keys, device)
@@ -196,9 +198,16 @@ def train(
 
 
 @app.command()
-def train_biencoder(batch_size: int = 2, epochs: int = 10, save_path: str = "model_save_path"):
+def train_biencoder(
+    mention_map_path: str,
+    text_key="marked_sentence",
+    batch_size: int = 2,
+    epochs: int = 10,
+    save_path: str = "model_save_path",
+    learning_rate: float = 0.00001,
+):
     # Load the training and developing data
-    with open("../../corpus/ecb/mention_map.pkl", "rb") as f:
+    with open(mention_map_path, "rb") as f:
         mention_map = pickle.load(f)
 
     train_split_ids = [
@@ -217,8 +226,10 @@ def train_biencoder(batch_size: int = 2, epochs: int = 10, save_path: str = "mod
         mention_map,
         train_split_ids,
         dev_selected_ids,
+        text_key=text_key,
         batch_size=batch_size,
         epochs=epochs,
+        learning_rate=learning_rate,
         save_path=save_path,
     )
 
