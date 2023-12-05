@@ -218,6 +218,7 @@ def tokenize_with_postive_condiates(
         with keys: 'input_ids', 'attention_mask', and 'position_ids'.
     """
     max_sentence_len = max_sentence_len or tokenizer.model_max_length
+    print(max_sentence_len)
     anchor_instance_list = []
     positive_candidate_instance_list = []
     anchor_gold_label_list = []
@@ -234,9 +235,9 @@ def tokenize_with_postive_condiates(
         anchor_id_list.append(mention_id)
 
         # Get the positive candidate
-        positive_candidate = random.choice(
-            mention_map[mention_id]["positive_candidates"]
-        )
+        positive_candidate = mention_map[
+            random.choice(mention_map[mention_id]["positive_candidates"])
+        ]
         positive_candidate_sentence = get_context(positive_candidate, text_key)
         positive_candidate_instance = (
             f"<g> {doc_start} {positive_candidate_sentence} {doc_end}"

@@ -1,3 +1,4 @@
+import os.path
 import pickle
 
 import torch
@@ -76,10 +77,25 @@ def evaluate(model, mention_dict, selected_keys, device, top_k=10):
     print("recall:", recall)
 
 
+def add_positive_candidates(mention_map):
+    cluster2mentions = {}
+    for m_id, mention in mention_map.items():
+        cluster_id = mention["gold_cluster"]
+        if cluster_id not in cluster2mentions:
+            cluster2mentions[cluster_id] = []
+        cluster2mentions[cluster_id].append(m_id)
+
+    for mention_ids in cluster2mentions.values():
+        for m_id in mention_ids:
+            mention_map[m_id]["positive_candidates"] = mention_ids
+
+
 def train(
     mention_dict,
     train_selected_keys,
     dev_selected_keys,
+    model_name="roberta-base-cased",
+    long=False,
     text_key="marked_doc",
     learning_rate=0.00001,
     batch_size=2,
@@ -87,12 +103,14 @@ def train(
     save_path="../models/bi_encoder/",
 ):
     # Initialize the model and tokenizer
-    bi_encoder = BiEncoder()
+    bi_encoder = BiEncoder(model_name=model_name, long=long)
+
     tokenizer = bi_encoder.tokenizer
     m_start_id = bi_encoder.start_id
     m_end_id = bi_encoder.end_id
 
     # Tokenize anchors and positive candidates
+    add_positive_candidates(mention_dict)
     tokenized_anchor_dict, tokenized_positive_dict = tokenize_with_postive_condiates(
         tokenizer, train_selected_keys, mention_dict, m_end_id, text_key=text_key
     )
@@ -120,11 +138,11 @@ def train(
 
     # Device configuration
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = bi_encoder.to(device)
+    bi_encoder.to(device)
 
     # FAISS database setup
     faiss_db = VectorDatabase()
-    train_index, _ = create_faiss_db(train_dataset, model, device=device)
+    train_index, _ = create_faiss_db(train_dataset, bi_encoder, device=device)
     faiss_db.set_index(train_index, train_dataset)
 
     # Loss function and optimizer
@@ -139,26 +157,26 @@ def train(
         swap=False,
         reduction="mean",
     )
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
 
     # start the evaluation
-    evaluate(model, mention_dict, dev_selected_keys, device)
+    evaluate(bi_encoder, mention_dict, dev_selected_keys, device)
 
     # Training loop
-    model.train()
+    bi_encoder.train()
     for epoch in range(epochs):
         # Initialize progress bar
         pbar = tqdm(total=len(train_dataloader), desc=f"Epoch {epoch + 1}/{epochs}")
 
         for i, (anchor_batch, positive_batch) in enumerate(train_dataloader, start=1):
             # Process anchor, positive, and negative batches
-            anchor_embeddings = process_batch(anchor_batch, model, device)
-            positive_embeddings = process_batch(positive_batch, model, device)
+            anchor_embeddings = process_batch(anchor_batch, bi_encoder, device)
+            positive_embeddings = process_batch(positive_batch, bi_encoder, device)
 
             hard_negatives_batch = faiss_db.get_hard_negative(
                 anchor_embeddings, anchor_batch["label"]
             )
-            negative_embeddings = process_batch(hard_negatives_batch, model, device)
+            negative_embeddings = process_batch(hard_negatives_batch, bi_encoder, device)
 
             # Compute loss and update model
             loss = triplet_loss(
@@ -180,27 +198,29 @@ def train(
         pbar.close()
         # Save the model
         torch.save(
-            model.state_dict(),
+            bi_encoder.state_dict(),
             f"{save_path}bi_encoder_{epoch}.pt",
         )
 
         # Update the FAISS database
         try:
-            train_index, _ = create_faiss_db(train_dataset, model, device=device)
+            train_index, _ = create_faiss_db(train_dataset, bi_encoder, device=device)
             faiss_db.set_index(train_index, train_dataset)
         except Exception as e:
             print(f"Error updating FAISS database at Epoch {epoch + 1}: {e}")
 
         # Evaluate the model
-        evaluate(model, mention_dict, dev_selected_keys, device)
+        evaluate(bi_encoder, mention_dict, dev_selected_keys, device)
 
-    return model
+    return bi_encoder
 
 
 @app.command()
 def train_biencoder(
     mention_map_path: str,
+    model_name: str="roberta-base-uncased",
     text_key="marked_sentence",
+    long=False,
     batch_size: int = 2,
     epochs: int = 10,
     save_path: str = "model_save_path",
@@ -209,6 +229,9 @@ def train_biencoder(
     # Load the training and developing data
     with open(mention_map_path, "rb") as f:
         mention_map = pickle.load(f)
+
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
 
     train_split_ids = [
         m_id
@@ -226,6 +249,8 @@ def train_biencoder(
         mention_map,
         train_split_ids,
         dev_selected_ids,
+        model_name=model_name,
+        long=long,
         text_key=text_key,
         batch_size=batch_size,
         epochs=epochs,

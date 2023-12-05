@@ -35,7 +35,7 @@ class BiEncoder(nn.Module):
     def __init__(
         self,
         is_training=True,
-        long=True,
+        long=False,
         model_name="allenai/longformer-base-4096",
         linear_weights=None,
     ):
@@ -78,8 +78,8 @@ class BiEncoder(nn.Module):
         arg,
     ):
         arg_names = set(getfullargspec(self.model).args)
-
-        if self.long:
+        # print(self.long)
+        if self.long is True:
             output = self.model(
                 input_ids,
                 position_ids=position_ids,

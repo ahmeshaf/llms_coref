@@ -39,6 +39,7 @@ commands:
       - >- 
         python -m scripts.nn_method.train
         ${vars.ecb-mention-map}
+        --model-name /home/rehan/workspace/models/ce_models/ecb_small/bert
         --text-key neighbors_2
         --learning-rate 0.00001
         --batch-size 4
