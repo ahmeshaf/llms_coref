@@ -25,7 +25,7 @@ from .coref_prompt_collections import (
     fourshot_template,
     zeroshot_prompt,
 )
-from .helper import cluster, generate_key_file
+from .nn_method.helper import get_context
 from .heuristic import biencoder_nn, get_lh_pairs, lh
 from .prediction import evaluate
 
@@ -166,14 +166,19 @@ def llm_coref(
         if event1_data is None or event2_data is None:
             continue
 
-        event1 = event1_data[text_key]
-        event2 = event2_data[text_key]
+        event1 = get_context(event1_data, text_key)
+        event2 = get_context(event2_data, text_key)
 
         predict = chain.run(event1=event1, event2=event2)
         predict_dict = parser.parse(predict)
         result_list.append(predict_dict["Answer"])
 
+        format_prompt = chain.prompt.format_prompt(event1=event1, event2=event2)
+
+        # format method to
+
         result_dict[evt_pair] = {
+            "prompt": format_prompt,
             "event1_id": event1_id,
             "event2_id": event2_id,
             "event1": event1,
