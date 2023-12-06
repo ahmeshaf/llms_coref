@@ -1,4 +1,6 @@
 import os
+from pathlib import Path
+
 import numpy as np
 import torch
 
@@ -277,3 +279,8 @@ def f1_score(predicted_labels, true_labels):
     P = precision(predicted_labels, true_labels)
     R = recall(predicted_labels, true_labels)
     return 2 * P * R / (P + R)
+
+
+def ensure_path(file: Path):
+    if not file.parent.exists():
+        file.parent.mkdir(parents=True)
