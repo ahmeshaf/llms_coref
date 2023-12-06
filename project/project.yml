@@ -69,7 +69,7 @@ commands:
         --knn-file ./outputs/knn/dev_map_100_neigh_3.pkl 
         --top-k 10 
         --ce-score-file ./outputs/ce_neigh_3.pkl
-        --ce-threshold 0.5
+        --ce-threshold 0.99
         --ce-text-key neighbors_3
 
   - name: "lh-bert"
@@ -79,5 +79,17 @@ commands:
         python -m scripts.bert_pipeline run-lh-bert-pipeline 
         corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/ 
         --ce-score-file ./outputs/ce_lh_dev.pkl 
-        --ce-threshold 0.5
+        --ce-threshold 0.0
 
+  - name: "knn-lh-bert"
+    help: "Run the coreference pipeline with KNN filtering and BERT CrossEncoder"
+    script:
+      - >-
+        python -m scripts.bert_pipeline run-knn-lh-bert-pipeline 
+        corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/bert
+        /home/rehan/workspace/models/ce_models/ecb_small/ 
+        --knn-file ./outputs/knn/dev_map_100_neigh_2.pkl 
+        --top-k 3 
+        --ce-score-file ./outputs/ce_lh_tp_neigh_2.pkl
+        --ce-threshold 0.0
+        --ce-text-key neighbors_2
