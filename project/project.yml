@@ -93,3 +93,4 @@ commands:
         --ce-score-file ./outputs/ce_lh_tp_neigh_2.pkl
         --ce-threshold 0.0
         --ce-text-key neighbors_2
+        --ce-force

@@ -140,3 +140,7 @@ class BiEncoder(nn.Module):
             return lm_output
 
         return self.linear(lm_output)
+
+    def save_model(self, model_path):
+        self.model.save_pretrained(model_path + "/bert")
+        torch.save(self.linear.state_dict(), model_path + "/linear.pt")

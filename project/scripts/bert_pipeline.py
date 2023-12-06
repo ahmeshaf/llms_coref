@@ -199,7 +199,7 @@ def run_knn_lh_bert_pipeline(
     print("After knn", len(mention_pairs))
     # generate LH mention pairs
     m_pairs, _ = get_lh_pairs(mention_map, split, lh, lh_threshold)
-    for m1, m2 in m_pairs[0]:
+    for m1, m2 in m_pairs[0] + m_pairs[1]:
         if m1 > m2:
             m1, m2 = m2, m1
         mention_pairs.add((m1, m2))

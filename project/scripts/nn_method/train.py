@@ -7,6 +7,7 @@ import typer
 from datasets import Dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+from transformers import AutoModel
 
 from .bi_encoder import BiEncoder
 from .helper import (
@@ -194,13 +195,16 @@ def train(
                     "Loss": f"{loss.item():.4f}",
                 }
             )
+            break
 
         pbar.close()
         # Save the model
-        torch.save(
-            bi_encoder.state_dict(),
-            f"{save_path}bi_encoder_{epoch}.pt",
-        )
+        bi_encoder.save_model(f"{save_path}/checkpoint-{epoch}/")
+        # torch.save(bi_encoder, f"{save_path}/checkpoint-{epoch}/")
+        # torch.save(
+        #     bi_encoder.state_dict(),
+        #     f"{save_path}bi_encoder_{epoch}.pt",
+        # )
 
         # Update the FAISS database
         try:
