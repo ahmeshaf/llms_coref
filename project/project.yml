@@ -94,3 +94,14 @@ commands:
         --ce-threshold 0.0
         --ce-text-key neighbors_2
         --ce-force
+
+  - name: "lh-llm"
+    help: "Run coreference pipeline with LH filtering and LLM reasoning"
+    script:
+      - >-
+        python -m scripts.prediction run-lh-llm-pipeline
+        corpus/ecb/ debug_split
+        --debug
+        --gpt-version gpt-3.5-turbo
+        --save-folder outputs/llms/debug
+        --experiment-name zeroshot

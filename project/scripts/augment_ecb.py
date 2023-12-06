@@ -1,10 +1,14 @@
 import logging
 import pickle
+import random
 from collections import defaultdict
+from pathlib import Path
 from typing import Dict, List, Tuple
 
 import typer
 from tqdm import tqdm
+
+from .bert_pipeline import ensure_path
 
 # Basic logging setup
 logging.basicConfig(
@@ -138,6 +142,31 @@ def augment_candidates(
         mention_map, label_group
     )
     pickle.dump(updated_mention_map, open(map_save_path, "wb"))
+
+
+@app.command()
+def add_debug_split(mention_map_path: Path, aug_mention_map_path: Path):
+    ensure_path(aug_mention_map_path)
+    mention_map = pickle.load(open(mention_map_path, "rb"))
+
+    debug_docs = defaultdict(set)
+    for m_id, mention in mention_map.items():
+        if mention["men_type"] == "evt" and mention["split"] == "dev":
+            topic_id = mention["topic"]
+            doc_id = mention["doc_id"]
+            debug_docs[topic_id].add(doc_id)
+    random.seed(42)
+    debug_docs_list = set()
+    for doc_list in debug_docs.values():
+        docs = random.sample(doc_list, k=5)
+        debug_docs_list.update(docs)
+
+    for m_id, mention in mention_map.items():
+        doc_id = mention["doc_id"]
+        if doc_id in debug_docs_list:
+            mention["split"] = "debug_split"
+
+    pickle.dump(mention_map, open(aug_mention_map_path, "wb"))
 
 
 if __name__ == "__main__":
