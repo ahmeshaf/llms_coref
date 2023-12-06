@@ -2,20 +2,10 @@ import os.path
 import pickle
 import typer
 
-from datasets import Dataset
 from pathlib import Path
-from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from .helper import *
-from .nn_method.bi_encoder import BiEncoder
-from .nn_method.helper import (
-    tokenize_bi,
-    get_arg_attention_mask_wrapper,
-    create_faiss_db,
-    VectorDatabase,
-    process_batch,
-)
 
 app = typer.Typer()
 
@@ -40,15 +30,7 @@ def get_mention_pair_similarity_lemma2(
     """
     similarities = []
 
-    within_doc_similarities = []
-
-    # doc_sent_map = pickle.load(open(working_folder + '/doc_sent_map.pkl', 'rb'))
-    # doc_sims = pickle.load(open(working_folder + '/doc_sims_path.pkl', 'rb'))
     doc_ids = []
-
-    # for doc_id, _ in list(doc_sent_map.items()):
-    #     doc_ids.append(doc_id)
-
     doc2id = {doc: i for i, doc in enumerate(doc_ids)}
 
     # generate similarity using the mention text
@@ -64,29 +46,11 @@ def get_mention_pair_similarity_lemma2(
             # return len(set.intersection(arr1, arr2))
 
         doc_id1 = men_map1["doc_id"]
-        # sent_id1 = int(men_map1['sentence_id'])
-        # all_sent_ids1 = {str(sent_id1 - 1), str(sent_id1), str(sent_id1 + 1)}
-        # all_sent_ids1 = {str(sent_id1)}
-        #
-        # doc_id2 = men_map2['doc_id']
-        # sent_id2 = int(men_map2['sentence_id'])
-        # all_sent_ids2 = {str(sent_id2 - 1), str(sent_id2), str(sent_id2 + 1)}
-        #
-        # all_sent_ids2 = {str(sent_id2)}
-
-        # sentence_tokens1 = [tok for sent_id in all_sent_ids1 if sent_id in doc_sent_map[doc_id1]
-        #                     for tok in doc_sent_map[doc_id1][sent_id]['sentence_tokens']]
-        #
-        # sentence_tokens2 = [tok for sent_id in all_sent_ids2 if sent_id in doc_sent_map[doc_id2]
-        #                     for tok in doc_sent_map[doc_id2][sent_id]['sentence_tokens']]
-
         sentence_tokens1 = [tok for tok in men_map1["sentence_tokens"]]
 
         sentence_tokens2 = [tok for tok in men_map2["sentence_tokens"]]
 
         sent_sim = jc(set(sentence_tokens1), set(sentence_tokens2))
-        # sent_sim = jc(set(men_map1['sentence_tokens']), set(men_map2['sentence_tokens']))
-        # doc_sim = doc_sims[doc2id[men_map1['doc_id']], doc2id[men_map2['doc_id']]]
         lemma_sim = float(
             men_map1["lemma"].lower() in men_text2
             or men_map2["lemma"].lower() in men_text1
@@ -100,18 +64,15 @@ def get_mention_pair_similarity_lemma2(
         else:
             pair_tuple = (lemma1, lemma2)
 
-        # similarities.append((lemma_sim or pair_tuple in relations))
         similarities.append(
             (lemma_sim or pair_tuple in relations) and sent_sim > threshold
         )
-        # similarities.append((lemma_sim) and sent_sim > 0.05)
-        # similarities.append((lemma_sim + 0.3*sent_sim)/2)
 
     return np.array(similarities)
 
 
 def get_mention_pair_similarity_lemma(
-    mention_pairs, mention_map, syn_lemma_pairs, threshold=0.05, doc_sent_map=None
+    mention_pairs, mention_map, syn_lemma_pairs, threshold=0.05
 ):
     similarities = []
 
@@ -125,30 +86,12 @@ def get_mention_pair_similarity_lemma(
         lemma1 = remove_puncts(men_map1["lemma"].lower())
         lemma2 = remove_puncts(men_map2["lemma"].lower())
 
-        # doc_id1 = men_map1['doc_id']
-        # sent_id1 = int(men_map1['sentence_id'])
-        # all_sent_ids1 = {str(sent_id1 - 1), str(sent_id1), str(sent_id1 + 1)}
-        # all_sent_ids1 = {str(sent_id1)}
-        #
-        # doc_id2 = men_map2['doc_id']
-        # sent_id2 = int(men_map2['sentence_id'])
-        # all_sent_ids2 = {str(sent_id2 - 1), str(sent_id2), str(sent_id2 + 1)}
-        #
-        # all_sent_ids2 = {str(sent_id2)}
-
-        # sentence_tokens1 = [tok for sent_id in all_sent_ids1 if sent_id in doc_sent_map[doc_id1]
-        #                     for tok in doc_sent_map[doc_id1][sent_id]['sentence_tokens']]
-        #
-        # sentence_tokens2 = [tok for sent_id in all_sent_ids2 if sent_id in doc_sent_map[doc_id2]
-        #                     for tok in doc_sent_map[doc_id2][sent_id]['sentence_tokens']]
-
         sentence_tokens1 = [tok.lower() for tok in men_map1["sentence_tokens"]]
 
         sentence_tokens2 = [tok.lower() for tok in men_map2["sentence_tokens"]]
 
         sent_sim = jc(set(sentence_tokens1), set(sentence_tokens2))
-        # sent_sim = jc(set(men_map1['sentence_tokens']), set(men_map2['sentence_tokens']))
-        # doc_sim = doc_sims[doc2id[men_map1['doc_id']], doc2id[men_map2['doc_id']]]
+
         lemma_sim = float(
             lemma1 in men_text2 or lemma2 in men_text1 or men_text1 in lemma2
         )
@@ -189,8 +132,6 @@ def get_lemma_pairs_labels(mention_map, pairs_labels):
         else:
             pair_tuple = (lemma1, lemma2)
 
-        # lemma_pair = tuple(sorted([remove_puncts(mention_map[m1]['lemma'].lower()),
-        #                            remove_puncts(mention_map[m2]['lemma'].lower())]))
         lemma_pairs_labels.append((pair_tuple, label))
     return lemma_pairs_labels
 
@@ -426,127 +367,18 @@ def get_lh_pairs(mention_map, split, heu="lh", lh_threshold=0.15, lemma_pairs=No
     return m_pairs, m_pairs_trans
 
 
-def load_biencoder(model_path, long=False, linear_weights_path=None):
-    """
-
-    Parameters
-    ----------
-    model_path: str
-    long: bool
-    linear_weights_path: str
-
-    Returns
-    -------
-    BiEncoder
-    """
-
-    biencoder = BiEncoder(model_name=model_path, is_training=False, long=long)
-    # biencoder.load_state_dict(torch.load(model_path))
-
-    return biencoder
-
-
-def get_knn_candidate_map(
-    evt_mention_map,
-    split_mention_ids,
-    biencoder,
-    top_k,
-    device="cuda",
-    text_key="marked_sentence",
+@app.command()
+def save_lh_pairs(
+    dataset_folder: str, split: str, heu: str, lh_threshold: float, pairs_out_file: Path
 ):
-    """
-    TODO: run bi-encoder prediction and get candidates cid_map = {eid: [c_ids]}
-    TODO: make pairs of [(e_id, c) for eid, cs in cid_map.items() for c in cs]
-
-    Parameters
-    ----------
-    evt_mention_map: Dict
-    split_mention_ids: List[str]
-    biencoder: BiEncoder
-    top_k: int
-
-    Returns
-    -------
-    List[(str, str)]
-    """
-    biencoder.eval()
-    biencoder.to(device)
-
-    tokenizer = biencoder.tokenizer
-    m_start_id = biencoder.start_id
-    m_end_id = biencoder.end_id
-
-    # tokenize the event mentions in the split
-    tokenized_dev_dict = tokenize_bi(
-        tokenizer, split_mention_ids, evt_mention_map, m_end_id, text_key=text_key
-    )
-    split_dataset = Dataset.from_dict(tokenized_dev_dict).with_format("torch")
-    split_dataset = split_dataset.map(
-        lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
-        batched=True,
-        batch_size=1,
-    )  # to include global attention mask and attention mask for the event mentions
-    split_dataloader = DataLoader(split_dataset, batch_size=1, shuffle=False)
-
-    faiss_db = VectorDatabase()
-    dev_index, _ = create_faiss_db(split_dataset, biencoder, device=device)
-    faiss_db.set_index(dev_index, split_dataset)
-
-    result_list = []
-
-    with torch.no_grad():
-        for batch in tqdm(split_dataloader, desc="Biencoder prediction"):
-            embeddings = process_batch(batch, biencoder, device)
-            neighbor_index_list = faiss_db.get_nearest_neighbors(embeddings, top_k)[0][
-                1:
-            ]  # remove the first one which is the query itself
-            candidate_ids = [i["mention_id"] for i in neighbor_index_list]
-            result_list.append((batch["mention_id"][0], candidate_ids))
-
-    return result_list
-
-
-def biencoder_nn(
-    dataset_folder, split, model_name, long, top_k=10, device="cuda", text_key=None
-):
-    """
-    Generate mention pairs using the k-nearest neighbor approach of Held et al. 2021.
-
-    config file: model name, path,
-
-    Parameters
-    ----------
-    dataset_folder: str
-    split: str
-    model_name: str
-    top_k: int
-    long: bool
-
-    Returns
-    -------
-
-    """
+    ensure_path(pairs_out_file)
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
-    evt_mention_map = {
-        m_id: m for m_id, m in mention_map.items() if m["men_type"] == "evt"
-    }
-    split_mention_ids = [
-        key for key, val in evt_mention_map.items() if val["split"] == split
-    ]
+    m_pairs, _ = get_lh_pairs(mention_map, split, heu=heu, lh_threshold=lh_threshold)
 
-    biencoder = load_biencoder(model_name, long)
-
-    # run the biencoder k-nn on the split
-    all_mention_pairs = get_knn_candidate_map(
-        evt_mention_map,
-        split_mention_ids,
-        biencoder,
-        top_k,
-        text_key=text_key,
-        device=device,
-    )
-
-    return all_mention_pairs
+    # use only the positive predictions
+    mention_pairs = m_pairs[0] + m_pairs[1]
+    print(len(mention_pairs))
+    pickle.dump(mention_pairs, open(pairs_out_file, "wb"))
 
 
 if __name__ == "__main__":
