@@ -146,6 +146,83 @@ def run_ce(
 
 
 @app.command()
+def run_knn_lh_bert_pipeline(
+    dataset_folder: str,
+    split: str,
+    model_name: str,
+    ce_folder: str,
+    knn_file: Path = None,
+    top_k: int = 10,
+    lh: str = "lh",
+    lh_threshold: float = 0.15,
+    device: str = "cuda:0",
+    max_sentence_len: int = None,
+    is_long: bool = False,
+    ce_text_key: str = "marked_sentence",
+    ce_score_file: Path = None,
+    ce_threshold: float = 0.5,
+    ce_force: bool = False,
+):
+    # read split mention map
+    ensure_path(ce_score_file)
+    ensure_path(knn_file)
+    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+    split_mention_ids = [
+        m_id
+        for m_id, m in mention_map.items()
+        if m["men_type"] == "evt" and m["split"] == split
+    ]
+
+    # generate target-candidates map
+    if knn_file and knn_file.exists():
+        knn_map = pickle.load(open(knn_file, "rb"))
+    else:
+        knn_map = get_biencoder_knn(
+            dataset_folder,
+            split,
+            model_name,
+            knn_file,
+            ce_text_key=ce_text_key,
+            top_k=100,
+            device=device,
+            long=is_long,
+        )
+
+    # generate target-candidate knn mention pairs
+    mention_pairs = set()
+    for e_id, c_ids in knn_map:
+        for c_id in c_ids[:top_k]:
+            if e_id > c_id:
+                e_id, c_id = c_id, e_id
+            mention_pairs.add((e_id, c_id))
+
+    print("After knn", len(mention_pairs))
+    # generate LH mention pairs
+    m_pairs, _ = get_lh_pairs(mention_map, split, lh, lh_threshold)
+    for m1, m2 in m_pairs[0]:
+        if m1 > m2:
+            m1, m2 = m2, m1
+        mention_pairs.add((m1, m2))
+
+    print("after LH", len(mention_pairs))
+    mention_pairs = sorted(list(mention_pairs))
+
+    run_ce(
+        mention_map,
+        split_mention_ids,
+        mention_pairs,
+        ce_folder,
+        ce_text_key,
+        max_sentence_len,
+        is_long,
+        device,
+        ce_score_file,
+        ce_threshold,
+        ce_force,
+    )
+
+
+@app.command()
 def run_lh_bert_pipeline(
     dataset_folder: str,
     split: str,
@@ -210,30 +287,6 @@ def run_knn_bert_pipeline(
     ce_threshold: float = 0.5,
     ce_force: bool = False,
 ):
-    """
-    Main Experiment Pipeline:
-        a) generate the knn candidate pairs
-        b) run coreference on these using BERT model
-    Parameters
-    ----------
-    dataset_folder: str
-    split: str
-    model_name: str (BertModel path)
-    ce_folder: str (The path to the cross-encoder folder)
-    knn_file: Path
-    top_k: int
-    device: str
-    max_sentence_len: int
-    is_long: bool
-    ce_text_key: str
-    ce_score_file: Path (cache file to save the intermediate ce scores)
-    ce_threshold: float
-    ce_force: bool
-
-    Returns
-    -------
-
-    """
     # read split mention map
     ensure_path(ce_score_file)
     ensure_path(knn_file)

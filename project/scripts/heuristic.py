@@ -207,7 +207,7 @@ def generate_tp_fp_tn_fn(
         mention_pairs, mention_map, syn_lemma_pairs, threshold=threshold
     )
 
-    lemma_coref = similarities > 0.15
+    lemma_coref = similarities > threshold
     # print('all positives:', lemma_coref.sum())
 
     tps = np.logical_and(lemma_coref, ground_truth).nonzero()
