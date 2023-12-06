@@ -10,3 +10,4 @@ bs4
 lxml
 typer
 faiss-cpu
+git+https://github.com/ns-moosavi/coval.git
