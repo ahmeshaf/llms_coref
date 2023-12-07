@@ -31,7 +31,7 @@ from .coref_prompt_collections import (
 )
 
 from .helper import generate_key_file, cluster
-from .heuristic import biencoder_nn, get_lh_pairs, lh
+from .heuristic import get_lh_pairs, lh
 from .nn_method.helper import get_context
 
 # global variables

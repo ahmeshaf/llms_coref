@@ -56,12 +56,12 @@ class CrossEncoder(nn.Module):
     ):
         arg_names = set(getfullargspec(self.model).args)
 
-        if self.long:
+        if self.long is True:
             output = self.model(
                 input_ids,
                 position_ids=position_ids,
                 attention_mask=attention_mask,
-                global_attention_mask=None,
+                global_attention_mask=global_attention_mask,
             )
         else:
             output = self.model(input_ids, attention_mask=attention_mask)

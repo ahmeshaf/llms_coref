@@ -95,7 +95,7 @@ commands:
     help: "Run the coref pipeline with Lemma Heuristic and BERT CrossEncoder"
     script:
       - >-
-        python -m scripts.bert_pipeline run-lh-bert-pipeline 
+        python -m scripts.bert_pipeline
         corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/ 
         --ce-score-file ./outputs/ce_lh_dev.pkl 
         --ce-threshold 0.0
