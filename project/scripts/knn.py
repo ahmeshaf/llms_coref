@@ -186,6 +186,29 @@ def get_knn_pairs(
     return mention_pairs
 
 
+def get_biencoder_knn(
+    dataset_folder: str,
+    split: str,
+    model_name: str,
+    output_file: Path,
+    ce_text_key: str = "marked_sentence",
+    top_k: int = 10,
+    device: str = "cuda",
+    long: bool = False,
+):
+    if not output_file.parent.exists():
+        output_file.parent.mkdir(parents=True)
+    candidate_map = biencoder_nn(
+        dataset_folder, split, model_name, long, top_k, device, text_key=ce_text_key
+    )
+    candidate_map = biencoder_nn(
+        dataset_folder, split, model_name, long, top_k, device, text_key=ce_text_key
+    )
+    print(len(candidate_map))
+    pickle.dump(candidate_map, open(output_file, "wb"))
+    return candidate_map
+
+
 @app.command()
 def save_knn_mention_pairs(
     dataset_folder: str,

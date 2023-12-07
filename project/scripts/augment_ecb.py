@@ -8,7 +8,7 @@ from typing import Dict, List, Tuple
 import typer
 from tqdm import tqdm
 
-from .bert_pipeline import ensure_path
+from .helper import ensure_path
 
 # Basic logging setup
 logging.basicConfig(
