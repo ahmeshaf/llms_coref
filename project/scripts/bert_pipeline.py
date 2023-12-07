@@ -7,7 +7,7 @@ from tqdm import tqdm
 
 from .nn_method.models import CrossEncoder
 from .nn_method.helper import forward_ab, tokenize_ce
-from .prediction import evaluate
+from .helper import evaluate
 
 
 app = typer.Typer()
