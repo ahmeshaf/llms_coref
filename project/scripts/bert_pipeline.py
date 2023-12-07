@@ -7,8 +7,7 @@ from tqdm import tqdm
 
 from .bert.models import CrossEncoder
 from .bert.helper import forward_ab, tokenize_ce
-from .helper import evaluate
-
+from .helper import evaluate, ensure_path
 
 app = typer.Typer()
 
@@ -158,6 +157,7 @@ def run_ce_mention_pairs(
     ce_threshold: float = 0.5,
     ce_force: bool = False,
 ):
+    ensure_path(ce_score_file)
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
 
     split_mention_ids = {

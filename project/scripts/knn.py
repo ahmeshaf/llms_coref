@@ -138,14 +138,13 @@ def get_knn_map(
     model_path: str,
     output_file: Path,
     ce_text_key: str = "marked_sentence",
-    top_k: int = 10,
     device: str = "cuda",
     long: bool = False,
 ):
     if not output_file.parent.exists():
         output_file.parent.mkdir(parents=True)
     candidate_map = biencoder_nn(
-        dataset_folder, split, model_path, long, top_k, device, text_key=ce_text_key
+        dataset_folder, split, model_path, long, 100, device, text_key=ce_text_key
     )
     print(len(candidate_map))
     pickle.dump(candidate_map, open(output_file, "wb"))
@@ -170,7 +169,6 @@ def get_knn_pairs(
             model_path,
             output_file,
             ce_text_key,
-            top_k,
             device,
             long,
         )
@@ -224,6 +222,7 @@ def save_knn_mention_pairs(
 ):
     ensure_path(knn_output_file)
     ensure_path(pairs_output_file)
+    print(top_k)
     mention_pairs = get_knn_pairs(
         dataset_folder,
         split,
