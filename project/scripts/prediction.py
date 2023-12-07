@@ -1,6 +1,6 @@
-# Standard Library Imports
 import os
 import pickle
+import re
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -10,7 +10,6 @@ import numpy as np
 import openai
 import typer
 from dotenv import find_dotenv, load_dotenv
-
 from langchain import LLMChain, PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.output_parsers import StructuredOutputParser
@@ -21,12 +20,13 @@ from .coref_prompt_collections import (
     baseline_prompt,
     cot_output_parser,
     eightshot_prompt,
-    fourshot_template,
+    explanation_prompt,
+    fourshot_prompt,
+    twoshot_prompt,
     zeroshot_prompt,
 )
-from .heuristic import get_lh_pairs
+from .helper import evaluate
 from .nn_method.helper import get_context
-from .helper import evaluate, ensure_path
 
 app = typer.Typer()
 
@@ -39,13 +39,23 @@ def prompt_and_parser_factory(
     elif prompt_type == "zeroshot":
         return zeroshot_prompt, cot_output_parser
     elif prompt_type == "twoshot":
-        return fourshot_template, cot_output_parser
+        return twoshot_prompt, cot_output_parser
     elif prompt_type == "fourshot":
-        return fourshot_template, cot_output_parser
+        return fourshot_prompt, cot_output_parser
     elif prompt_type == "eightshot":
         return eightshot_prompt, cot_output_parser
     else:
         raise ValueError(f"Invalid prompt type: {prompt_type}")
+
+
+def extract_answers(strings):
+    # Regular expression to extract the "Answer" part
+    pattern = r'"Answer":\s*"(\w+)"'
+    answers = []
+    matches = re.findall(pattern, strings)
+    answers.extend(matches)
+    return answers
+
 
 def llm_coref(
     event_pairs: List[Tuple[str, str]],
@@ -53,8 +63,9 @@ def llm_coref(
     prompt: PromptTemplate,
     parser: StructuredOutputParser,
     gpt_version: str = "gpt-4",
-    save_folder: str = "../../llm_results",
+    save_folder: Path = "../../llm_results",
     text_key: str = "marked_doc",
+    run_name: str = "baseline",
 ) -> Dict:
     """
     Predict coreference using the LLM (Language Model) for provided event pairs.
@@ -88,7 +99,9 @@ def llm_coref(
     result_dict = defaultdict(dict)
 
     # initialize the llm
-    llm = ChatOpenAI(temperature=0.0, model=gpt_version)
+    llm = ChatOpenAI(
+        temperature=0.0, model=gpt_version, request_timeout=180
+    )  # Set the request_timeout to 180 seconds
     chain = LLMChain(llm=llm, prompt=prompt)
 
     # predict
@@ -106,12 +119,19 @@ def llm_coref(
         event2 = get_context(event2_data, text_key)
 
         predict = chain.run(event1=event1, event2=event2)
-        predict_dict = parser.parse(predict)
-        result_list.append(predict_dict["Answer"])
+
+        try:
+            predict_dict = parser.parse(predict)
+            result_list.append(predict)
+
+        except Exception as e:
+            print(e)
+            # llm might occasionally generate multiple predictions
+            # in this case, we take the first one, following the setting in the paper cot.
+            answers = extract_answers(str(predict))
+            predict_dict = {"answer": answers[0]}
 
         format_prompt = chain.prompt.format_prompt(event1=event1, event2=event2)
-
-        # format method to
 
         result_dict[evt_pair] = {
             "prompt": format_prompt,
@@ -119,53 +139,103 @@ def llm_coref(
             "event2_id": event2_id,
             "event1": event1,
             "event2": event2,
+            "eveent1_trigger": event1_data["mention_text"],
+            "event2_trigger": event2_data["mention_text"],
             "predict_raw": predict,
             "predict_dict": predict_dict,
         }
 
     # Save the result_dict
-    if os.path.exists(save_folder) is False:
+    if not os.path.exists(save_folder):
         os.makedirs(save_folder)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     save_path = os.path.join(
-        save_folder, f"{gpt_version}_predict_result_{timestamp}.pkl"
+        save_folder,
+        run_name,
+        f"{gpt_version}_{run_name}_predict_result_{timestamp}.pkl",
     )
     pickle.dump(result_dict, open(save_path, "wb"))
+    print(f"Saved prediction results to {save_path}")
 
     result_list = [1 if r == "True" else 0 for r in result_list]
     return result_list, result_dict
 
 
+def llm_explanation(
+    event_pairs: List[Tuple[str, str]],
+    mention_map: Dict,
+    prompt: PromptTemplate,
+    gpt_version: str = "gpt-4",
+    save_folder: Path = "../../llm_explanation",
+    text_key: str = "marked_doc",
+):
+    result_dict = defaultdict(dict)
+    llm = ChatOpenAI(temperature=0.0, model=gpt_version, request_timeout=180)
+    chain = LLMChain(llm=llm, prompt=prompt)
+
+    for evt_pair in tqdm(event_pairs):
+        event1_id = evt_pair[0]
+        event2_id = evt_pair[1]
+
+        event1_data = mention_map.get(event1_id)
+        event2_data = mention_map.get(event2_id)
+
+        if event1_data is None or event2_data is None:
+            continue
+
+        event1_label = event1_data["gold_cluster"]
+        event2_label = event2_data["gold_cluster"]
+        true_label = "True" if event1_label == event2_label else "False"
+
+        event1 = get_context(event1_data, text_key)
+        event2 = get_context(event2_data, text_key)
+
+        answer = chain.run(event1=event1, event2=event2, true_label=true_label)
+        format_prompt = chain.prompt.format_prompt(
+            event1=event1, event2=event2, true_label=true_label
+        )
+
+        result_dict[evt_pair] = {
+            "prompt": format_prompt,
+            "event1_id": event1_id,
+            "event2_id": event2_id,
+            "event1": event1,
+            "event2": event2,
+            "event1_label": event1_label,
+            "event2_label": event2_label,
+            "eveent1_trigger": event1_data["mention_text"],
+            "event2_trigger": event2_data["mention_text"],
+            "answer": answer,
+        }
+
+    # Save the result_dict
+    if not os.path.exists(save_folder):
+        os.makedirs(save_folder)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    save_path = os.path.join(
+        save_folder, f"{gpt_version}_explanation_result_{timestamp}.pkl"
+    )
+    pickle.dump(result_dict, open(save_path, "wb"))
+    print(f"Saved explanation results to {save_path}")
+
+    return result_dict
+
+
 @app.command()
-def run_lh_llm_pipeline(
+def run_llm_pipeline(
     dataset_folder: str,
     split: str,
+    mention_pairs_path: Path,
     debug: bool = False,
     gpt_version: str = "gpt-4",
-    save_folder: str = "../../llm_results",
+    save_folder: Path = "../../llm_results",
     experiment_name: str = "baseline",
-    lh_threshold: float = 0.05,
-    heu: str = "lh",
 ):
-    """
-
-    Parameters
-    ----------
-    dataset_folder
-    split
-    gpt_version
-    template
-    experiment_name: baseline, zeroshot, twoshot, fourshot, eightshot
-
-    Returns
-    -------
-
-    """
-    # set up openai api key
-    _ = load_dotenv(find_dotenv())  # read local .env file
+    # Set up openai api key
+    _ = load_dotenv(find_dotenv())  # Read local .env file
     openai.api_key = os.environ["OPENAI_API_KEY"]
 
-    # read the mention_map from the dataset_folder
+    # Read the mention_map from the dataset_folder
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
 
     split_mention_ids = [
@@ -174,91 +244,61 @@ def run_lh_llm_pipeline(
         if m["men_type"] == "evt" and m["split"] == split
     ]
 
-    print(len(split_mention_ids))
+    # Get the mention pairs
+    mention_pairs = sorted(pickle.load(open(mention_pairs_path, "rb")))
 
-    # Generate event pairs from the split and remove redundant cases using the 'Lemma Heuristic' method.
-    mps, mps_trans = get_lh_pairs(
-        mention_map, split, heu=heu, lh_threshold=lh_threshold
-    )
-    tps, fps, tns, fns = mps
-    event_pairs = tps + fps
-
-    print(len(event_pairs))
     # debug
     if debug:
-        event_pairs = event_pairs[:1]
+        print("Total mention ids: ", len(split_mention_ids))
+        print("Total mention pairs: ", len(mention_pairs))
+        mention_pairs = mention_pairs[:5]
 
     prompt, parser = prompt_and_parser_factory(experiment_name)
 
     result_list, _ = llm_coref(
-        event_pairs,
+        mention_pairs,
         mention_map,
         prompt,
         parser,
         gpt_version,
         save_folder=save_folder,
+        run_name=experiment_name,
     )
 
-    # evaluate the result
+    # Evaluate the result
     result_array = np.array(result_list)
-    evaluate_result = evaluate(
-        mention_map, split_mention_ids, event_pairs, similarity_matrix=result_array
+    scores = evaluate(
+        mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
     )
 
-    return evaluate_result
-
+    print(scores)
 
 
 @app.command()
-def run_knn_bert_pipeline(
+def run_llm_explanation(
     dataset_folder: str,
-    split: str,
-    model_name: str,
-    knn_file: Path = None,
-    top_k: int = 10,
-    device: str = "cuda:0",
-    max_sentence_len: int = None,
-    is_long: bool = False,
-    ce_text_key: str = "marked_sentence",
-    ce_score_file: Path = None,
-    ce_threshold: float = 0.5,
-    ce_force: bool = False,
+    mention_pairs_path: Path,
+    debug: bool = False,
+    gpt_version: str = "gpt-4",
+    save_folder: Path = "../../llm_explanation",
 ):
-    # read split mention map
-    ensure_path(ce_score_file)
-    ensure_path(knn_file)
+    # Set up openai api key
+    _ = load_dotenv(find_dotenv())
+    openai.api_key = os.environ["OPENAI_API_KEY"]
+
+    # Read the mention_map from the dataset_folder
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
-    split_mention_ids = [
-        m_id
-        for m_id, m in mention_map.items()
-        if m["men_type"] == "evt" and m["split"] == split
-    ]
 
-    # generate target-candidates map
-    if knn_file and knn_file.exists():
-        knn_map = pickle.load(open(knn_file, "rb"))
-    else:
-        knn_map = get_biencoder_knn(
-            dataset_folder,
-            split,
-            model_name,
-            knn_file,
-            ce_text_key=ce_text_key,
-            top_k=100,
-            device=device,
-            long=is_long,
-        )
+    # Get the mention pairs
+    mention_pairs = sorted(pickle.load(open(mention_pairs_path, "rb")))
 
-    # generate target-candidate mention pairs
-    mention_pairs = set()
-    for e_id, c_ids in knn_map:
-        for c_id in c_ids[:top_k]:
-            if e_id > c_id:
-                e_id, c_id = c_id, e_id
-            mention_pairs.add((e_id, c_id))
-    mention_pairs = sorted(list(mention_pairs))
+    if debug:
+        print("Total mention pairs: ", len(mention_pairs))
+        mention_pairs = mention_pairs[:5]
 
-    # TODO: Add llm stuff
+    result_dict = llm_explanation(
+        mention_pairs, mention_map, explanation_prompt, gpt_version, save_folder
+    )
 
 
 if __name__ == "__main__":
