@@ -168,3 +168,17 @@ eightshot_prompt = PromptTemplate(
     input_variables=['event1', 'event2'],
     partial_variables={"format_instructions": cot_format_instructions},
 )
+
+# ECR explanation
+explanation_template = """
+You are en expert Event Coreference Resolution System. I will provide two sentences with marked events and the true label of the two events. Your task is to identify why they are coreferent or not coreferent. 
+When solving the ECR task, it is important to consider the event actions, participants of actions, locations, and time. 
+Event1: {event1}
+Event2: {event2}
+Gold label: {true_label}
+Your answer:
+"""
+
+explanation_prompt = PromptTemplate(
+    template=explanation_template,
+    input_variables=['event1', 'event2', 'true_label'],)
