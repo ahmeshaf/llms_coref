@@ -5,8 +5,8 @@ import typer
 from pathlib import Path
 from tqdm import tqdm
 
-from .nn_method.models import CrossEncoder
-from .nn_method.helper import forward_ab, tokenize_ce
+from .bert.models import CrossEncoder
+from .bert.helper import forward_ab, tokenize_ce
 from .helper import evaluate
 
 

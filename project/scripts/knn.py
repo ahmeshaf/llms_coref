@@ -8,14 +8,14 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from typer import Typer
 
-from .nn_method.helper import (
+from .bert.helper import (
     get_arg_attention_mask_wrapper,
     process_batch,
     create_faiss_db,
     VectorDatabase,
     tokenize_bi,
 )
-from .nn_method.bi_encoder import BiEncoder
+from .bert.bi_encoder import BiEncoder
 from .helper import ensure_path
 
 app = Typer()

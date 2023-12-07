@@ -31,7 +31,7 @@ from .coref_prompt_collections import (
 
 from .helper import evaluate
 from .heuristic import get_lh_pairs, lh
-from .nn_method.helper import get_context
+from .bert.helper import get_context
 
 # global variables
 split_index_map = {"train": 0, "dev": 1, "test": 2}
