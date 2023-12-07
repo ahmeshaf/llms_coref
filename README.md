@@ -33,3 +33,10 @@ python -m spacy project assets
 ```sh
 python -m spacy project run ecb-setup
 ```
+
+## BERT Pipelines
+```shell
+python -m scripts.bert_pipeline ./corpus/ecb/ debug_split ./outputs/lh/mention_pairs.pkl 
+/home/rehan/workspace/models/ce_models/ecb_small/ --max-sentence-len 512 --ce-score-file 
+./outputs/knn/ce_score_lh.pkl
+```
