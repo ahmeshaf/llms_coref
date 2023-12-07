@@ -18,7 +18,6 @@ from langchain.output_parsers import StructuredOutputParser
 from tqdm import tqdm
 
 from coval.conll.reader import get_coref_infos
-from coval.eval.evaluator import b_cubed, ceafe, evaluate_documents, lea, muc
 
 
 from .coref_prompt_collections import (
@@ -30,7 +29,7 @@ from .coref_prompt_collections import (
     zeroshot_prompt,
 )
 
-from .helper import generate_key_file, cluster
+from .helper import evaluate
 from .heuristic import get_lh_pairs, lh
 from .nn_method.helper import get_context
 
@@ -38,11 +37,6 @@ from .nn_method.helper import get_context
 split_index_map = {"train": 0, "dev": 1, "test": 2}
 
 app = typer.Typer()
-
-
-# helper functions
-def read(key, response):
-    return get_coref_infos("%s" % key, "%s" % response, False, False, True)
 
 
 def prompt_and_parser_factory(
@@ -275,147 +269,6 @@ def run_lh_llm_pipeline(
     )
 
     return evaluate_result
-
-
-
-@app.command()
-def run_knn_bert_pipeline(
-    dataset_folder: str,
-    split: str,
-    model_name: str,
-    knn_file: Path = None,
-    top_k: int = 10,
-    device: str = "cuda:0",
-    max_sentence_len: int = None,
-    is_long: bool = False,
-    ce_text_key: str = "marked_sentence",
-    ce_score_file: Path = None,
-    ce_threshold: float = 0.5,
-    ce_force: bool = False,
-):
-    # read split mention map
-    ensure_path(ce_score_file)
-    ensure_path(knn_file)
-    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
-    split_mention_ids = [
-        m_id
-        for m_id, m in mention_map.items()
-        if m["men_type"] == "evt" and m["split"] == split
-    ]
-
-    # generate target-candidates map
-    if knn_file and knn_file.exists():
-        knn_map = pickle.load(open(knn_file, "rb"))
-    else:
-        knn_map = get_biencoder_knn(
-            dataset_folder,
-            split,
-            model_name,
-            knn_file,
-            ce_text_key=ce_text_key,
-            top_k=100,
-            device=device,
-            long=is_long,
-        )
-
-    # generate target-candidate mention pairs
-    mention_pairs = set()
-    for e_id, c_ids in knn_map:
-        for c_id in c_ids[:top_k]:
-            if e_id > c_id:
-                e_id, c_id = c_id, e_id
-            mention_pairs.add((e_id, c_id))
-    mention_pairs = sorted(list(mention_pairs))
-
-    # TODO: Add llm stuff
-
-
-def evaluate(
-    mention_map: Dict[str, Dict[str, str]],
-    split_mention_ids: List[str],
-    prediction_pairs: List[Tuple[str, str]],
-    similarity_matrix: np.ndarray,
-    tmp_folder: str = "/tmp/",
-) -> Dict[str, Tuple[float, float, float]]:
-    """
-    Evaluate the prediction results using various coreference resolution metrics.
-
-    Parameters
-    ----------
-    mention_map : dict
-        A mapping of mentions to their attributes. Each attribute should have a 'gold_cluster' key.
-    split_mention_ids: List[str]
-        mention ids of current split
-    prediction_pairs : list of tuple
-        List of tuples representing predicted pairs of mentions.
-    similarity_matrix : np.ndarray
-        A one-dimensional array representing the predicted results for each pair of mentions.
-    tmp_folder : str, optional
-        Directory path to store temporary files. Defaults to '../../tmp/'.
-
-    Returns
-    -------
-    dict
-        A dictionary containing evaluation results for various coreference metrics. The keys include:
-        - 'MUC': (recall, precision, f-score)
-        - 'B-Cubed': (recall, precision, f-score)
-        - 'CEAF-E': (recall, precision, f-score)
-        - 'LEA': (recall, precision, f-score)
-    """
-    # Create the key file with gold clusters from mention map
-    curr_gold_cluster_map = [
-        (men, mention_map[men]["gold_cluster"]) for men in split_mention_ids
-    ]
-    gold_key_file = tmp_folder + "/gold_clusters.keyfile"
-    generate_key_file(curr_gold_cluster_map, "evt", tmp_folder, gold_key_file)
-
-    # Run clustering using prediction_pairs and similarity_matrix
-    mid2cluster = cluster(split_mention_ids, prediction_pairs, similarity_matrix)
-
-    # Create a predictions key file
-    system_key_file = tmp_folder + "/predicted_clusters.keyfile"
-    generate_key_file(mid2cluster.items(), "evt", tmp_folder, system_key_file)
-
-    # Evaluation on gold and prediction key files.
-    doc = read(gold_key_file, system_key_file)
-
-    mr, mp, mf = np.round(np.round(evaluate_documents(doc, muc), 3) * 100, 1)
-    br, bp, bf = np.round(np.round(evaluate_documents(doc, b_cubed), 3) * 100, 1)
-    cr, cp, cf = np.round(np.round(evaluate_documents(doc, ceafe), 3) * 100, 1)
-    lr, lp, lf = np.round(np.round(evaluate_documents(doc, lea), 3) * 100, 1)
-
-    results = {
-        "MUC": (mr, mp, mf),
-        "B-Cubed": (br, bp, bf),
-        "CEAF-E": (cr, cp, cf),
-        "CONLL": (mf + bf + cf)/3,
-        "LEA": (lr, lp, lf),
-    }
-
-    return results
-
-
-def get_biencoder_knn(
-    dataset_folder: str,
-    split: str,
-    model_name: str,
-    output_file: Path,
-    ce_text_key: str = "marked_sentence",
-    top_k: int = 10,
-    device: str = "cuda",
-    long: bool = False,
-):
-    if not output_file.parent.exists():
-        output_file.parent.mkdir(parents=True)
-    candidate_map = biencoder_nn(
-        dataset_folder, split, model_name, long, top_k, device, text_key=ce_text_key
-    )
-    candidate_map = biencoder_nn(
-        dataset_folder, split, model_name, long, top_k, device, text_key=ce_text_key
-    )
-    print(len(candidate_map))
-    pickle.dump(candidate_map, open(output_file, "wb"))
-    return candidate_map
 
 
 if __name__ == "__main__":
