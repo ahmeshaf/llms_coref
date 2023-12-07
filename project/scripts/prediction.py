@@ -25,8 +25,13 @@ from .coref_prompt_collections import (
     twoshot_prompt,
     zeroshot_prompt,
 )
+
 from .helper import evaluate
-from .nn_method.helper import get_context
+from .heuristic import get_lh_pairs, lh
+from .bert.helper import get_context
+
+# global variables
+split_index_map = {"train": 0, "dev": 1, "test": 2}
 
 app = typer.Typer()
 
