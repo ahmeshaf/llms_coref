@@ -376,7 +376,12 @@ def save_lh_pairs(
     m_pairs, _ = get_lh_pairs(mention_map, split, heu=heu, lh_threshold=lh_threshold)
 
     # use only the positive predictions
-    mention_pairs = m_pairs[0] + m_pairs[1]
+    tp_fp = m_pairs[0] + m_pairs[1]
+    mention_pairs = set()
+    for m1, m2 in tp_fp:
+        if m2 > m1:
+            m1, m2 = m2, m1
+        mention_pairs.add((m1, m2))
     print(len(mention_pairs))
     pickle.dump(mention_pairs, open(pairs_out_file, "wb"))
 

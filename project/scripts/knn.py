@@ -216,5 +216,23 @@ def save_knn_mention_pairs(
     pickle.dump(mention_pairs, open(pairs_output_file, "wb"))
 
 
+@app.command()
+def merge_mention_pairs(p1_path: Path, p2_path: Path, outfile_path: Path):
+    ensure_path(outfile_path)
+    pairs1 = list(pickle.load(open(p1_path, "rb")))
+    pairs2 = list(pickle.load(open(p2_path, "rb")))
+    print("p1", len(pairs1))
+    print("p2", len(pairs2))
+
+    merged = set()
+    for m1, m2 in pairs1 + pairs2:
+        if m1 > m2:
+            merged.add((m1, m2))
+        else:
+            merged.add((m2, m1))
+    print("merged", len(merged))
+    pickle.dump(merged, open(outfile_path, "wb"))
+
+
 if __name__ == "__main__":
     app()
