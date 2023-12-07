@@ -381,14 +381,15 @@ def evaluate(
 
     mr, mp, mf = np.round(np.round(evaluate_documents(doc, muc), 3) * 100, 1)
     br, bp, bf = np.round(np.round(evaluate_documents(doc, b_cubed), 3) * 100, 1)
-    # cr, cp, cf = np.round(np.round(evaluate_documents(doc, ceafe), 3) * 100, 1)
-    # lr, lp, lf = np.round(np.round(evaluate_documents(doc, lea), 3) * 100, 1)
+    cr, cp, cf = np.round(np.round(evaluate_documents(doc, ceafe), 3) * 100, 1)
+    lr, lp, lf = np.round(np.round(evaluate_documents(doc, lea), 3) * 100, 1)
 
     results = {
         "MUC": (mr, mp, mf),
         "B-Cubed": (br, bp, bf),
-        # "CEAF-E": (cr, cp, cf),
-        # "LEA": (lr, lp, lf),
+        "CEAF-E": (cr, cp, cf),
+        "CONLL": (mf + bf + cf)/3,
+        "LEA": (lr, lp, lf),
     }
 
     return results
