@@ -126,15 +126,17 @@ def llm_coref(
 
         try:
             predict_dict = parser.parse(predict)
-            result_list.append(predict)
 
         except Exception as e:
             print(e)
+            print("Wrong format found!")
             # llm might occasionally generate multiple predictions
             # in this case, we take the first one, following the setting in the paper cot.
             answers = extract_answers(str(predict))
-            predict_dict = {"answer": answers[0]}
+            print("total answers detected: ", len(answers))
+            predict_dict = {"Answer": answers[0]}
 
+        result_list.append(predict_dict["Answer"])
         format_prompt = chain.prompt.format_prompt(event1=event1, event2=event2)
 
         result_dict[evt_pair] = {
@@ -150,12 +152,12 @@ def llm_coref(
         }
 
     # Save the result_dict
+    save_folder = os.path.join(save_folder, run_name)
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     save_path = os.path.join(
         save_folder,
-        run_name,
         f"{gpt_version}_{run_name}_predict_result_{timestamp}.pkl",
     )
     pickle.dump(result_dict, open(save_path, "wb"))
@@ -250,6 +252,8 @@ def run_llm_pipeline(
 
     # Get the mention pairs
     mention_pairs = sorted(pickle.load(open(mention_pairs_path, "rb")))
+    if not isinstance(mention_pairs, list):
+        mention_pairs = list(mention_pairs)
 
     # debug
     if debug:
