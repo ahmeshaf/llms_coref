@@ -272,9 +272,12 @@ def run_llm_pipeline(
 
     # Evaluate the result
     result_array = np.array(result_list)
+
     scores = evaluate(
         mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
     )
+    mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
+    pickle.dump((mention_pairs, result_array, result_array))
 
     print(scores)
 
