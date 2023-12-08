@@ -10,10 +10,12 @@ from typer import Typer
 
 from .bert.helper import (
     get_arg_attention_mask_wrapper,
+    get_arg_attention_mask_wrapper_ce,
     process_batch,
     create_faiss_db,
     VectorDatabase,
     tokenize_bi,
+    tokenize_ce
 )
 from .bert.bi_encoder import BiEncoder
 from .helper import ensure_path
@@ -41,6 +43,35 @@ def load_biencoder_model_linear(bert_path, linear_weights, training=False, long=
         long=long,
     )
 
+def get_knn_candidate_map_ce(
+    evt_mention_map,
+    split_mention_ids,
+    crossencoder,
+    top_k,
+    device="cuda",
+    text_key="marked_sentence",
+):
+    crossencoder.eval()
+    crossencoder.to(device)
+    
+    tokenizer = crossencoder.tokenizer
+    m_start_id = crossencoder.start_id
+    m_end_id = crossencoder.end_id
+    
+    # tokenize the event pairs in the split
+    tokenized_dict = tokenize_ce(
+         tokenizer, split_mention_ids, evt_mention_map, m_end_id, text_key=text_key
+    )
+    split_dataset = Dataset.from_dict(tokenized_dict).with_format("torch")
+    split_dataset = split_dataset.map(
+        lambda batch: get_arg_attention_mask_wrapper_ce(batch, m_start_id, m_end_id),
+        batched=True,
+        batch_size=1,
+    )  # to include global attention mask and attention mask for the event pairs
+    
+    split_dataloader = DataLoader(split_dataset, batch_size=1, shuffle=False)
+
+
 
 def get_knn_candidate_map(
     evt_mention_map,
@@ -51,9 +82,6 @@ def get_knn_candidate_map(
     text_key="marked_sentence",
 ):
     """
-    TODO: run bi-encoder prediction and get candidates cid_map = {eid: [c_ids]}
-    TODO: make pairs of [(e_id, c) for eid, cs in cid_map.items() for c in cs]
-
     Parameters
     ----------
 
@@ -69,10 +97,10 @@ def get_knn_candidate_map(
     m_end_id = biencoder.end_id
 
     # tokenize the event mentions in the split
-    tokenized_dev_dict = tokenize_bi(
+    tokenized_dict = tokenize_bi(
         tokenizer, split_mention_ids, evt_mention_map, m_end_id, text_key=text_key
     )
-    split_dataset = Dataset.from_dict(tokenized_dev_dict).with_format("torch")
+    split_dataset = Dataset.from_dict(tokenized_dict).with_format("torch")
     split_dataset = split_dataset.map(
         lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
         batched=True,
@@ -182,7 +210,7 @@ def get_knn_pairs(
             mention_pairs.add(p)
     return mention_pairs
 
-
+# TODO: remove since no code is using this.
 def get_biencoder_knn(
     dataset_folder: str,
     split: str,

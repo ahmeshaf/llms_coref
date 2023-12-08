@@ -368,6 +368,28 @@ def get_arg_attention_mask_ce(input_ids, parallel_model):
     return attention_mask_g, arg1, arg2
 
 
+def get_arg_attention_mask_ce_wrapper(batch, m_start_id, m_end_id):
+    """
+    Wraps the function get_arg_attention_mask_ce to compute attention masks for arguments.
+
+    Args:
+        batch (dict): The input batch containing "input_ids".
+        m_start_id (int): The start index of the main entity.
+        m_end_id (int): The end index of the main entity.
+
+    Returns:
+        dict: The updated batch with "global_attention_mask", "arg_attention_mask1", and "arg_attention_mask2".
+    """
+    input_ids = batch["input_ids"]
+    # get the attention mask for the arguments
+    global_attention_mask, arg1, arg2 = get_arg_attention_mask_ce(
+        input_ids, m_start_id, m_end_id
+    )
+    batch["global_attention_mask"] = global_attention_mask
+    batch["arg_attention_mask1"] = arg1
+    batch["arg_attention_mask2"] = arg2
+    return batch
+
 def forward_ab(parallel_model, ab_dict, device, indices, lm_only=False):
     batch_tensor_ab = ab_dict["input_ids"][indices, :]
     batch_am_ab = ab_dict["attention_mask"][indices, :]
