@@ -9,6 +9,7 @@ from collections import defaultdict
 from datetime import datetime
 from dotenv import find_dotenv, load_dotenv
 from langchain import LLMChain, PromptTemplate
+from langchain.callbacks import get_openai_callback
 from langchain.chat_models import ChatOpenAI
 from langchain.output_parsers import StructuredOutputParser
 from pathlib import Path
@@ -27,7 +28,7 @@ from .coref_prompt_collections import (
 )
 
 from .bert.helper import get_context
-from .helper import evaluate
+from .helper import evaluate, ensure_path
 
 # global variables
 split_index_map = {"train": 0, "dev": 1, "test": 2}
@@ -66,10 +67,12 @@ def llm_coref(
     mention_map: Dict,
     prompt: PromptTemplate,
     parser: StructuredOutputParser,
+    cache_file: Path = "/tmp/gpt_pred_coref.pkl",
     gpt_version: str = "gpt-4",
     save_folder: Path = "../../llm_results",
     text_key: str = "marked_doc",
     run_name: str = "baseline",
+    temperature: float = 0.7
 ) -> Dict:
     """
     Predict coreference using the LLM (Language Model) for provided event pairs.
@@ -87,8 +90,12 @@ def llm_coref(
         A parser to extract structured output from the LLM's response.
     gpt_version : str, optional
         The version of the GPT model to use. Default is "gpt-4".
+    cache_file: Path
+    text_key: str
+    run_name: str
     save_folder : str, optional
         Folder to save the prediction results. Default is "../../llm_results".
+    temperature: float
 
 
     Returns
@@ -99,12 +106,19 @@ def llm_coref(
         A dictionary containing detailed prediction results for each event pair,
         including event IDs, event sentences, and parsed predictions.
     """
+    ensure_path(cache_file)
+
+    if cache_file.exists():
+        raw_cache = pickle.load(open(cache_file, "rb"))
+    else:
+        raw_cache = {}
+
     result_list = []
     result_dict = defaultdict(dict)
 
     # initialize the llm
     llm = ChatOpenAI(
-        temperature=0.0, model=gpt_version, request_timeout=180
+        temperature=temperature, model=gpt_version, request_timeout=180
     )  # Set the request_timeout to 180 seconds
     chain = LLMChain(llm=llm, prompt=prompt)
 
@@ -112,17 +126,30 @@ def llm_coref(
     for evt_pair in tqdm(event_pairs):
         event1_id = evt_pair[0]
         event2_id = evt_pair[1]
-
         event1_data = mention_map.get(event1_id)
         event2_data = mention_map.get(event2_id)
 
         if event1_data is None or event2_data is None:
             continue
 
-        event1 = get_context(event1_data, text_key)
-        event2 = get_context(event2_data, text_key)
+        event1_text = get_context(event1_data, text_key)
+        event2_text = get_context(event2_data, text_key)
 
-        predict = chain.run(event1=event1, event2=event2)
+        format_prompt = chain.prompt.format_prompt(event1=event1_text, event2=event2_text)
+
+        if evt_pair in raw_cache:
+            predict = raw_cache[evt_pair]["predict"]
+        else:
+            with get_openai_callback() as cb:
+                predict = chain.run(event1=event1_text, event2=event2_text)
+                predict_cost = {
+                    "Total": cb.total_tokens,
+                    "Prompt": cb.prompt_tokens,
+                    "Completion": cb.completion_tokens,
+                    "Cost": cb.total_cost
+                }
+                raw_cache[evt_pair] = {"predict": predict, "predict_cost": predict_cost}
+                pickle.dump(raw_cache, open(cache_file, "wb"))
 
         try:
             predict_dict = parser.parse(predict)
@@ -135,15 +162,12 @@ def llm_coref(
             answers = extract_answers(str(predict))
             predict_dict = {"answer": answers[0]}
 
-        format_prompt = chain.prompt.format_prompt(event1=event1, event2=event2)
-
         result_dict[evt_pair] = {
-            "prompt": format_prompt,
             "event1_id": event1_id,
             "event2_id": event2_id,
-            "event1": event1,
-            "event2": event2,
-            "eveent1_trigger": event1_data["mention_text"],
+            "event1": event1_text,
+            "event2": event2_text,
+            "event1_trigger": event1_data["mention_text"],
             "event2_trigger": event2_data["mention_text"],
             "predict_raw": predict,
             "predict_dict": predict_dict,
@@ -230,11 +254,13 @@ def run_llm_pipeline(
     dataset_folder: str,
     split: str,
     mention_pairs_path: Path,
+    results_file: Path,
     debug: bool = False,
     gpt_version: str = "gpt-4",
-    save_folder: Path = "../../llm_results",
+    gpt_raw_cache_file: Path = "/tmp/gpt.cache",
     experiment_name: str = "baseline",
 ):
+    ensure_path(gpt_raw_cache_file)
     # Set up openai api key
     _ = load_dotenv(find_dotenv())  # Read local .env file
     openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -250,6 +276,7 @@ def run_llm_pipeline(
 
     # Get the mention pairs
     mention_pairs = sorted(pickle.load(open(mention_pairs_path, "rb")))
+    mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
 
     # debug
     if debug:
@@ -272,13 +299,14 @@ def run_llm_pipeline(
     # Evaluate the result
     result_array = np.array(result_list)
 
+    mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
     scores = evaluate(
         mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
     )
-    mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
+
     pickle.dump(
         (mention_pairs, result_array, result_array),
-        open(save_folder + "/llm_pairs_scores.pkl", "wb"),
+        open(results_file, "wb"),
     )
 
     print(scores)
