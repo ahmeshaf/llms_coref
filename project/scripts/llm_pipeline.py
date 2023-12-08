@@ -277,7 +277,7 @@ def run_llm_pipeline(
         mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
     )
     mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
-    pickle.dump((mention_pairs, result_array, result_array))
+    pickle.dump((mention_pairs, result_array, result_array), open(save_folder + "/llm_pairs_scores.pkl", "wb"))
 
     print(scores)
 
