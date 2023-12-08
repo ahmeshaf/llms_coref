@@ -178,9 +178,8 @@ def get_knn_pairs(
     mention_pairs = set()
     for e_id, c_ids in knn_map:
         for c_id in c_ids[:top_k]:
-            if e_id > c_id:
-                e_id, c_id = c_id, e_id
-            mention_pairs.add((e_id, c_id))
+            p = tuple(sorted((e_id, c_id)))
+            mention_pairs.add(p)
     return mention_pairs
 
 

@@ -29,7 +29,12 @@ def get_a_b_scores(mention_map_file, split, score_file_a, score_file_b, threshol
         for p, score_ab, score_ba in zip(mention_pairs_b, scores_b_ab, scores_b_ba)
     }
 
+    print("p1", len(mention_pairs_a))
+    print("pw", len(mention_pairs_b))
+
     all_pairs = sorted(set(mention_pairs_a + mention_pairs_b))
+
+    print("merged", len(all_pairs))
 
     a_scores = []
     b_scores = []

@@ -379,9 +379,8 @@ def save_lh_pairs(
     tp_fp = m_pairs[0] + m_pairs[1]
     mention_pairs = set()
     for m1, m2 in tp_fp:
-        if m2 > m1:
-            m1, m2 = m2, m1
-        mention_pairs.add((m1, m2))
+        p = tuple(sorted((m1, m2)))
+        mention_pairs.add(p)
     print(len(mention_pairs))
     pickle.dump(mention_pairs, open(pairs_out_file, "wb"))
 

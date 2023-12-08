@@ -125,6 +125,7 @@ def run_ce(
             max_sentence_len=max_sentence_len,
             device=device,
         )
+        mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
         pickle.dump((mention_pairs, ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb"))
 
     predictions = (ce_scores_ab + ce_scores_ba) / 2
