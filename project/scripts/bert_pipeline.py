@@ -114,7 +114,7 @@ def run_ce(
 ):
     # generate the intermediate ce_scores to be used for clustering
     if ce_score_file.exists() and not ce_force:
-        ce_scores_ab, ce_scores_ba = pickle.load(open(ce_score_file, "rb"))
+        mention_pairs, ce_scores_ab, ce_scores_ba = pickle.load(open(ce_score_file, "rb"))
     else:
         ce_scores_ab, ce_scores_ba = get_ce_scores(
             mention_map,
@@ -125,7 +125,7 @@ def run_ce(
             max_sentence_len=max_sentence_len,
             device=device,
         )
-        pickle.dump((ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb"))
+        pickle.dump((mention_pairs, ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb"))
 
     predictions = (ce_scores_ab + ce_scores_ba) / 2
     similarities = torch.squeeze(predictions) > ce_threshold
