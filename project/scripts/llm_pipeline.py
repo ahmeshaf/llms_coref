@@ -1,18 +1,18 @@
+import numpy as np
+import openai
 import os
 import pickle
 import re
+import typer
+
 from collections import defaultdict
 from datetime import datetime
-from pathlib import Path
-from typing import Dict, List, Tuple
-
-import numpy as np
-import openai
-import typer
 from dotenv import find_dotenv, load_dotenv
 from langchain import LLMChain, PromptTemplate
 from langchain.chat_models import ChatOpenAI
 from langchain.output_parsers import StructuredOutputParser
+from pathlib import Path
+from typing import Dict, List, Tuple
 from tqdm import tqdm
 
 from .coref_prompt_collections import (
@@ -26,9 +26,8 @@ from .coref_prompt_collections import (
     zeroshot_prompt,
 )
 
-from .helper import evaluate
-from .heuristic import get_lh_pairs, lh
 from .bert.helper import get_context
+from .helper import evaluate
 
 # global variables
 split_index_map = {"train": 0, "dev": 1, "test": 2}
@@ -277,7 +276,10 @@ def run_llm_pipeline(
         mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
     )
     mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
-    pickle.dump((mention_pairs, result_array, result_array), open(save_folder + "/llm_pairs_scores.pkl", "wb"))
+    pickle.dump(
+        (mention_pairs, result_array, result_array),
+        open(save_folder + "/llm_pairs_scores.pkl", "wb"),
+    )
 
     print(scores)
 
