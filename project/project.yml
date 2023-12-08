@@ -159,13 +159,12 @@ commands:
         --ce-text-key neighbors_2
         --ce-force
 
-  - name: "lh-llm"
-    help: "Run coreference pipeline with LH filtering and LLM reasoning"
+  - name: "llm"
+    help: "Run coreference pipeline with LLM reasoning"
     script:
       - >-
-        python -m scripts.prediction run-lh-llm-pipeline
-        corpus/ecb/ debug_split
-        --debug
+        python -m scripts.llm_pipeline run-llm-pipeline
+        corpus/ecb/ debug_split /Users/ERWAN2/projects/llms_coref/project/corpus/ecb/knn_neighbors_2_top3.pkl
         --gpt-version gpt-3.5-turbo
-        --save-folder outputs/llms/debug
-        --experiment-name zeroshot
+        --save-folder outputs/llms/debug/knn
+        --experiment-name twoshot

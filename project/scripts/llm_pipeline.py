@@ -126,6 +126,7 @@ def llm_coref(
     for evt_pair in tqdm(event_pairs):
         event1_id = evt_pair[0]
         event2_id = evt_pair[1]
+
         event1_data = mention_map.get(event1_id)
         event2_data = mention_map.get(event2_id)
 
@@ -160,7 +161,8 @@ def llm_coref(
             # llm might occasionally generate multiple predictions
             # in this case, we take the first one, following the setting in the paper cot.
             answers = extract_answers(str(predict))
-            predict_dict = {"answer": answers[0]}
+            print("total answers detected: ", len(answers))
+            predict_dict = {"Answer": answers[0]}
 
         result_dict[evt_pair] = {
             "event1_id": event1_id,
@@ -174,12 +176,12 @@ def llm_coref(
         }
 
     # Save the result_dict
+    save_folder = os.path.join(save_folder, run_name)
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     save_path = os.path.join(
         save_folder,
-        run_name,
         f"{gpt_version}_{run_name}_predict_result_{timestamp}.pkl",
     )
     pickle.dump(result_dict, open(save_path, "wb"))
@@ -299,7 +301,6 @@ def run_llm_pipeline(
     # Evaluate the result
     result_array = np.array(result_list)
 
-    mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
     scores = evaluate(
         mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
     )
