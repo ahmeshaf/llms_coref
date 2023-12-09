@@ -45,7 +45,7 @@ def load_biencoder_model_linear(bert_path, linear_weights, training=False, long=
 
 def get_knn_candidate_map_ce(
     evt_mention_map,
-    split_mention_ids,
+    mention_pairs,
     crossencoder,
     top_k,
     device="cuda",
@@ -57,10 +57,10 @@ def get_knn_candidate_map_ce(
     tokenizer = crossencoder.tokenizer
     m_start_id = crossencoder.start_id
     m_end_id = crossencoder.end_id
-    
     # tokenize the event pairs in the split
-    tokenized_dict = tokenize_ce(
-         tokenizer, split_mention_ids, evt_mention_map, m_end_id, text_key=text_key
+    # only takes the first element of the tokenize_ce result, order: a b
+    tokenized_dict, _ = tokenize_ce(
+         tokenizer, mention_pairs, evt_mention_map, m_end_id, text_key=text_key 
     )
     split_dataset = Dataset.from_dict(tokenized_dict).with_format("torch")
     split_dataset = split_dataset.map(
@@ -69,7 +69,26 @@ def get_knn_candidate_map_ce(
         batch_size=1,
     )  # to include global attention mask and attention mask for the event pairs
     
+
     split_dataloader = DataLoader(split_dataset, batch_size=1, shuffle=False)
+    
+    faiss_db = VectorDatabase()
+    dev_index, _ = create_faiss_db(split_dataset, crossencoder, device=device) # generate embeddings 
+    faiss_db.set_index(dev_index, split_dataset)
+    
+    result_list = []
+    
+    with torch.no_grad():
+        for batch in tqdm(split_dataloader): 
+            embeddings = process_batch(batch, crossencoder, device)
+            # remove the first one which is the query itself
+            neighbor_list = faiss_db.get_nearest_neighbors(embeddings, top_k)[0][
+                1:
+            ]
+            candidate_ids = [i["mention_pairs"] for i in neighbor_list] # will be tuple of m1, m2
+            result_list.append((batch["mention_pairs"], candidate_ids))
+
+    return result_list
 
 
 

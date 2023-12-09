@@ -8,6 +8,9 @@ import faiss
 import torch
 from torch.utils.data import Dataset as torch_Dataset
 
+from .models import CrossEncoder
+from .bi_encoder import BiEncoder
+
 
 def get_arg_attention_mask(input_ids, m_start_id, m_end_id):
     """
@@ -311,7 +314,7 @@ def tokenize_with_postive_condiates(
     return tokenized_anchor_dict, tokenized_positive_dict
 
 
-def get_arg_attention_mask_ce(input_ids, parallel_model):
+def get_arg_attention_mask_ce(input_ids, m_start_id, m_end_id):
     """
     Get the global attention mask and the indices corresponding to the tokens between
     the mention indicators.
@@ -329,8 +332,8 @@ def get_arg_attention_mask_ce(input_ids, parallel_model):
 
     num_inputs = input_ids.shape[0]
 
-    m_start_indicator = input_ids == parallel_model.module.start_id
-    m_end_indicator = input_ids == parallel_model.module.end_id
+    m_start_indicator = input_ids == m_start_id
+    m_end_indicator = input_ids == m_end_id
 
     m = m_start_indicator + m_end_indicator
 
@@ -368,7 +371,7 @@ def get_arg_attention_mask_ce(input_ids, parallel_model):
     return attention_mask_g, arg1, arg2
 
 
-def get_arg_attention_mask_ce_wrapper(batch, m_start_id, m_end_id):
+def get_arg_attention_mask_wrapper_ce(batch, m_start_id, m_end_id):
     """
     Wraps the function get_arg_attention_mask_ce to compute attention masks for arguments.
 
@@ -450,7 +453,7 @@ def tokenize_ce(
 
     pairwise_bert_instances_ab = []
     pairwise_bert_instances_ba = []
-
+    
     doc_start = "<doc-s>"
     doc_end = "</doc-s>"
 
@@ -505,6 +508,7 @@ def tokenize_ce(
             "input_ids": tokenized_ab_,
             "attention_mask": (tokenized_ab_ != tokenizer.pad_token_id),
             "position_ids": positions_ab,
+            "mention_pairs": mention_pairs,
         }
 
         return tokenized_ab_dict
@@ -550,21 +554,39 @@ def generate_embeddings(
     batch,
     model,
     device,
-):
-    input_ids = batch["input_ids"].to(device)
-    attention_mask = batch["attention_mask"].to(device)
-    position_ids = batch["position_ids"].to(device)
-    global_attention_mask = batch["global_attention_mask"].to(device)
-    arg_attention_mask = batch["arg_attention_mask"].to(device)
+):  
+    if isinstance(model, BiEncoder):
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+        position_ids = batch["position_ids"].to(device)
+        global_attention_mask = batch["global_attention_mask"].to(device)
+        arg_attention_mask = batch["arg_attention_mask"].to(device)
 
-    embeddings = model(
-        input_ids,
-        attention_mask=attention_mask,
-        position_ids=position_ids,
-        global_attention_mask=global_attention_mask,
-        arg=arg_attention_mask,
-    )
-
+        embeddings = model(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            global_attention_mask=global_attention_mask,
+            arg=arg_attention_mask,
+        )
+    elif isinstance(model, CrossEncoder):
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+        position_ids = batch["position_ids"].to(device)
+        global_attention_mask = batch["global_attention_mask"].to(device)
+        arg_attention_mask1 = batch["arg_attention_mask1"].to(device)
+        arg_attention_mask2 = batch["arg_attention_mask2"].to(device)
+        
+        embeddings = model(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            global_attention_mask=global_attention_mask,
+            arg1 = arg_attention_mask1,
+            arg2 = arg_attention_mask2,
+            lm_only=True, # only return the embeddings for the llm instead of scores
+        )
+    
     # move the embeddings to cpu to save gpu memory
     batch["embeddings"] = embeddings.cpu()
     return batch
@@ -575,7 +597,7 @@ def create_faiss_db(dataset, model, device):
     processed_dataset = dataset.map(
         lambda batch: generate_embeddings(batch, model, device),
         batched=True,
-        batch_size=64,
+        batch_size=16, # ce will take up lots of memory
     )
 
     embeddings = processed_dataset["embeddings"]
@@ -600,7 +622,7 @@ class VectorDatabase:
 
     def set_index(self, faiss_index, dataset):
         self.faiss_index = faiss_index
-        self.dataset = dataset
+        self.dataset = dataset 
 
     def get_hard_negative(self, anchor_embeddings, true_label):
         # Convert anchor embeddings from tensor to numpy for FAISS
@@ -681,17 +703,35 @@ class CombinedDataset(torch_Dataset):
 
 
 def process_batch(batch, model, device):
-    input_ids = batch["input_ids"].to(device)
-    attention_mask = batch["attention_mask"].to(device)
-    position_ids = batch["position_ids"].to(device)
-    global_attention_mask = batch["global_attention_mask"].to(device)
-    arg_attention_mask = batch["arg_attention_mask"].to(device)
+    if isinstance(model, BiEncoder):
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+        position_ids = batch["position_ids"].to(device)
+        global_attention_mask = batch["global_attention_mask"].to(device)
+        arg_attention_mask = batch["arg_attention_mask"].to(device)
 
-    embeddings = model(
-        input_ids,
-        attention_mask=attention_mask,
-        position_ids=position_ids,
-        global_attention_mask=global_attention_mask,
-        arg=arg_attention_mask,
-    )
+        embeddings = model(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            global_attention_mask=global_attention_mask,
+            arg=arg_attention_mask,
+        )
+    elif isinstance(model, CrossEncoder):
+        input_ids = batch["input_ids"].to(device)
+        attention_mask = batch["attention_mask"].to(device)
+        position_ids = batch["position_ids"].to(device)
+        global_attention_mask = batch["global_attention_mask"].to(device)
+        arg_attention_mask1 = batch["arg_attention_mask1"].to(device)
+        arg_attention_mask2 = batch["arg_attention_mask2"].to(device)
+        
+        embeddings = model(
+            input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            global_attention_mask=global_attention_mask,
+            arg1 = arg_attention_mask1,
+            arg2 = arg_attention_mask2,
+            lm_only=True, # only return the embeddings for the llm instead of scores
+        )
     return embeddings

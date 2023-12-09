@@ -8,10 +8,6 @@ import torch.nn as nn
 from inspect import getfullargspec
 from transformers import AutoModel, AutoTokenizer
 
-# TODOs: check the model
-
-
-
 # helper function
 def init_weights(m):
     """
