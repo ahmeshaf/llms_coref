@@ -179,7 +179,7 @@ def tokenize_bi(
             ),
         }
     tokenized_dict["label"] = instance_label_list
-    tokenized_dict["mention_id"] = instance_id_list
+    tokenized_dict["unit_ids"] = instance_id_list
     return tokenized_dict
 
 
@@ -393,6 +393,7 @@ def get_arg_attention_mask_wrapper_ce(batch, m_start_id, m_end_id):
     batch["arg_attention_mask2"] = arg2
     return batch
 
+
 def forward_ab(parallel_model, ab_dict, device, indices, lm_only=False):
     batch_tensor_ab = ab_dict["input_ids"][indices, :]
     batch_am_ab = ab_dict["attention_mask"][indices, :]
@@ -508,7 +509,7 @@ def tokenize_ce(
             "input_ids": tokenized_ab_,
             "attention_mask": (tokenized_ab_ != tokenizer.pad_token_id),
             "position_ids": positions_ab,
-            "mention_pairs": mention_pairs,
+            "unit_ids": mention_pairs,
         }
 
         return tokenized_ab_dict
@@ -555,37 +556,7 @@ def generate_embeddings(
     model,
     device,
 ):  
-    if isinstance(model, BiEncoder):
-        input_ids = batch["input_ids"].to(device)
-        attention_mask = batch["attention_mask"].to(device)
-        position_ids = batch["position_ids"].to(device)
-        global_attention_mask = batch["global_attention_mask"].to(device)
-        arg_attention_mask = batch["arg_attention_mask"].to(device)
-
-        embeddings = model(
-            input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            global_attention_mask=global_attention_mask,
-            arg=arg_attention_mask,
-        )
-    elif isinstance(model, CrossEncoder):
-        input_ids = batch["input_ids"].to(device)
-        attention_mask = batch["attention_mask"].to(device)
-        position_ids = batch["position_ids"].to(device)
-        global_attention_mask = batch["global_attention_mask"].to(device)
-        arg_attention_mask1 = batch["arg_attention_mask1"].to(device)
-        arg_attention_mask2 = batch["arg_attention_mask2"].to(device)
-        
-        embeddings = model(
-            input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            global_attention_mask=global_attention_mask,
-            arg1 = arg_attention_mask1,
-            arg2 = arg_attention_mask2,
-            lm_only=True, # only return the embeddings for the llm instead of scores
-        )
+    embeddings = process_batch(batch, model, device)
     
     # move the embeddings to cpu to save gpu memory
     batch["embeddings"] = embeddings.cpu()
