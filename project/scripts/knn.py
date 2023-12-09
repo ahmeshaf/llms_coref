@@ -172,12 +172,21 @@ def get_knn_pairs(
             device,
             long,
         )
-
+    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
     knn_map = pickle.load(open(output_file, "rb"))
     # generate target-candidate knn mention pairs
     mention_pairs = set()
     for e_id, c_ids in knn_map:
-        for c_id in c_ids[:top_k]:
+        # filter out c_ids not in the same topic and in the same sentence.
+        c_ids_clean = [
+            c_id
+            for c_id in c_ids
+            if mention_map[e_id]["topic"] == mention_map[c_id]["topic"]
+            and (mention_map[e_id]["doc_id"], mention_map[e_id]["sentence_id"])
+            != (mention_map[c_id]["doc_id"], mention_map[c_id]["sentence_id"])
+        ]
+
+        for c_id in c_ids_clean[:top_k]:
             p = tuple(sorted((e_id, c_id)))
             mention_pairs.add(p)
     return mention_pairs
