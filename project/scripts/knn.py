@@ -198,9 +198,6 @@ def get_biencoder_knn(
     candidate_map = biencoder_nn(
         dataset_folder, split, model_name, long, top_k, device, text_key=ce_text_key
     )
-    candidate_map = biencoder_nn(
-        dataset_folder, split, model_name, long, top_k, device, text_key=ce_text_key
-    )
     print(len(candidate_map))
     pickle.dump(candidate_map, open(output_file, "wb"))
     return candidate_map
