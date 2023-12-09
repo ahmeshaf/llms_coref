@@ -568,7 +568,7 @@ def create_faiss_db(dataset, model, device):
     processed_dataset = dataset.map(
         lambda batch: generate_embeddings(batch, model, device),
         batched=True,
-        batch_size=16, # ce will take up lots of memory
+        batch_size=256, # ce will take up lots of memory
     )
 
     embeddings = processed_dataset["embeddings"]

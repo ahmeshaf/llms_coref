@@ -70,10 +70,10 @@ def get_knn_candidate_map_ce(
     split_dataset = split_dataset.map(
         lambda batch: get_arg_attention_mask_wrapper_ce(batch, m_start_id, m_end_id),
         batched=True,
-        batch_size=1,
+        batch_size=128,
     )  # to include global attention mask and attention mask for the event pairs
 
-    split_dataloader = DataLoader(split_dataset, batch_size=1, shuffle=False)
+    split_dataloader = DataLoader(split_dataset, batch_size=128, shuffle=False)
 
     faiss_db = VectorDatabase()
     dev_index, _ = create_faiss_db(
@@ -87,13 +87,17 @@ def get_knn_candidate_map_ce(
         for batch in tqdm(split_dataloader):
             embeddings = process_batch(batch, crossencoder, device)
             # remove the first one which is the query itself
-            neighbor_list = faiss_db.get_nearest_neighbors(embeddings, top_k)[0][1:]
+            neighbor_list = faiss_db.get_nearest_neighbors(embeddings, top_k)
             candidate_ids = [
-                tuple(i["unit_ids"]) for i in neighbor_list
+                [tuple(cand["unit_ids"]) for cand in cands[1:]] for cands in neighbor_list
             ]  # will be tuple of m1, m2
-            target_id = batch["unit_ids"]
-            target_id = (target_id[0][0], target_id[1][0])
-            result_list.append((target_id, candidate_ids))
+            for j in range(len(batch["unit_ids"][0])):
+                target = (batch["unit_ids"][0][j], batch["unit_ids"][1][j])
+                candidates = candidate_ids[j]
+                result_list.append((target, candidates))
+
+            # target_id = (target_id[0][0], target_id[1][0])
+            # result_list.append((target_id, candidate_ids))
 
     return result_list
 
@@ -163,9 +167,7 @@ def get_knn_candidate_map(
     return result_list
 
 
-def encoder_nn(
-    mention_map, units, model, top_k=10, device="cuda", text_key=None
-):
+def encoder_nn(mention_map, units, model, top_k=10, device="cuda", text_key=None):
     """
     Generate mention pairs using the k-nearest neighbor approach of Held et al. 2021.
 
@@ -232,14 +234,6 @@ def get_knn_pairs(
     # generate target-candidate knn mention pairs
     target_candidate_pairs = set()
     for e_id, c_ids in knn_map:
-        # filter out c_ids not in the same topic and in the same sentence.
-        # c_ids_clean = [
-        #     c_id
-        #     for c_id in c_ids
-        #     if mention_map[e_id]["topic"] == mention_map[c_id]["topic"]
-        #     and (mention_map[e_id]["doc_id"], mention_map[e_id]["sentence_id"])
-        #     != (mention_map[c_id]["doc_id"], mention_map[c_id]["sentence_id"])
-        # ]
         for c_id in c_ids[:top_k]:
             p = tuple(sorted((e_id, c_id)))
             target_candidate_pairs.add(p)
@@ -268,7 +262,7 @@ def save_knn_mention_pairs(
         for m_id, men in mention_map.items()
         if men["men_type"] == "evt" and men["split"] == split
     ]
-    model = load_model_from_path(BiEncoder, model_path, training=False, long=False)
+    model = load_model_from_path(BiEncoder, model_path, training=False, long=long)
     mention_pairs = get_knn_pairs(
         mention_map,
         split_mention_ids,
@@ -277,7 +271,6 @@ def save_knn_mention_pairs(
         ce_text_key,
         top_k,
         device,
-        long,
         force,
     )
     print("mention pairs", len(mention_pairs))
@@ -300,7 +293,7 @@ def save_knn_mention_pairs_ce(
     ensure_path(pairs_output_file)
     mention_map = pickle.load(open(mention_map_file, "rb"))
     mention_pairs = pickle.load(open(mention_pairs_path, "rb"))
-    # mention_pairs = mention_pairs[:100]
+
     model = load_model_from_path(CrossEncoder, model_path, training=False, long=False)
     mention_pairs_res = get_knn_pairs(
         mention_map,

@@ -69,8 +69,7 @@ commands:
         ./outputs/knn/train_neighbors_2.pkl 
         ./outputs/mention_pairs/knn/train.pairs
         --ce-text-key neighbors_2 
-        --top-k 5
-        --force
+        --top-k 5 --force
 
       - >-
         python -m scripts.knn save-knn-mention-pairs
@@ -80,7 +79,6 @@ commands:
         ./outputs/mention_pairs/knn/dev.pairs
         --ce-text-key neighbors_2 
         --top-k 5
-        --force
 
       - >-
         python -m scripts.knn save-knn-mention-pairs
@@ -177,7 +175,7 @@ commands:
         ./corpus/ecb/mention_map.pkl ./outputs/mention_pairs/knn/train.pairs
         /media/rehan/big_disk/models/ce_lh/
         ./outputs/knn/train_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn/train.pairs
+        ./outputs/mention_pairs/knn_ce/train.pairs
         --ce-text-key neighbors_2 
         --top-k 5
         --force
@@ -187,7 +185,7 @@ commands:
         ./corpus/ecb/mention_map.pkl ./outputs/mention_pairs/knn/dev.pairs 
         /media/rehan/big_disk/models/ce_lh/
         ./outputs/knn/dev_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn/dev.pairs
+        ./outputs/mention_pairs/knn_ce/dev.pairs
         --ce-text-key neighbors_2 
         --top-k 5
         --force
@@ -197,7 +195,7 @@ commands:
         ./corpus/ecb/mention_map.pkl ./outputs/mention_pairs/knn/debug_split.pairs
         /media/rehan/big_disk/models/ce_lh/
         ./outputs/knn/debug_split_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn/debug_split.pairs 
+        ./outputs/mention_pairs/knn_ce/debug_split.pairs 
         --ce-text-key neighbors_2 
         --top-k 5
         --force
