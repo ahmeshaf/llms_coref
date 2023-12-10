@@ -278,7 +278,7 @@ def llm_coref(
     return result_array, result_dict
 
 
-def llm_agu(
+def llm_aug(
     flatten_doc_sent_map: Dict,
     prompt: PromptTemplate,
     parser: StructuredOutputParser,
@@ -545,7 +545,7 @@ def run_llm_aug_pipeline(
         first_5_items = list(flattened_dict.items())[:5]
         flattened_dict = dict(first_5_items)
 
-    result_dict = llm_argu(
+    result_dict = llm_aug(
         flattened_dict,
         adv_prompt,
         JsonParser(),
