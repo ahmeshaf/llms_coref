@@ -28,11 +28,11 @@ from .coref_prompt_collections import (
     zeroshot_prompt,
 )
 from .special_prompt_collections import (
-    davidson_prompt, 
-    quine_prompt, 
-    amr_prompt, 
+    davidson_prompt,
+    quine_prompt,
+    amr_prompt,
     arg_prompt,
-    adv_prompt 
+    adv_prompt,
 )
 
 
@@ -41,12 +41,14 @@ from .helper import evaluate, ensure_path, ensure_dir
 
 app = typer.Typer()
 
+
 class JsonParser:
     def __init__(self):
         pass
 
     def parse(self, output):
         return json.loads(output)
+
 
 def prompt_and_parser_factory(
     prompt_type: str,
@@ -92,7 +94,7 @@ def llm_coref(
     save_folder: Path = "../../llm_results",
     text_key: str = "marked_doc",
     run_name: str = "baseline",
-    temperature: float = 0.7
+    temperature: float = 0.7,
 ) -> Dict:
     """
     Predict coreference using the LLM (Language Model) for provided event pairs.
@@ -169,7 +171,7 @@ def llm_coref(
                     "Total": cb.total_tokens,
                     "Prompt": cb.prompt_tokens,
                     "Completion": cb.completion_tokens,
-                    "Cost": cb.total_cost
+                    "Cost": cb.total_cost,
                 }
                 raw_cache[evt_pair] = {"predict": predict, "predict_cost": predict_cost}
                 pickle.dump(raw_cache, open(cache_file, "wb"))
@@ -242,6 +244,7 @@ def llm_coref(
     result_array = np.array(result_array)
     return result_array, result_dict
 
+
 def llm_argu(
     flatten_doc_sent_map: Dict,
     prompt: PromptTemplate,
@@ -250,9 +253,8 @@ def llm_argu(
     gpt_version: str = "gpt-4",
     save_folder: Path = "../../llm_argu",
     run_name: str = "adv",
-    temperature: float = 0.7
+    temperature: float = 0.7,
 ) -> Dict:
-    
     # Prepare the cache file
     cache_file = os.path.join(cache_dir, f"{gpt_version}_{run_name}_cache.pkl")
     ensure_path(cache_file)
@@ -286,7 +288,7 @@ def llm_argu(
                     "Total": cb.total_tokens,
                     "Prompt": cb.prompt_tokens,
                     "Completion": cb.completion_tokens,
-                    "Cost": cb.total_cost
+                    "Cost": cb.total_cost,
                 }
                 raw_cache[key] = {"predict": predict, "predict_cost": predict_cost}
                 pickle.dump(raw_cache, open(cache_file, "wb"))
@@ -295,9 +297,8 @@ def llm_argu(
 
         except Exception as e:
             print(e)
-            
+
         result_dict[key] = predict_dict
-        
 
     # Save the result_dict
     save_folder = os.path.join(save_folder, run_name)
@@ -312,6 +313,7 @@ def llm_argu(
     print(f"Saved prediction results to {save_path}")
 
     return result_dict
+
 
 @app.command()
 def run_llm_pipeline(
@@ -370,17 +372,17 @@ def run_llm_pipeline(
     scores = evaluate(
         mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
     )
-    
+
     # Save the results
     pickle.dump(
         (mention_pairs, result_list, result_array),
         open(results_file, "wb"),
     )
-    
+
     # Debug
     if debug:
         print(result_dict)
-    
+
     print(scores)
 
 
@@ -405,8 +407,8 @@ def run_llm_argu_pipeline(
     flattened_dict = defaultdict(dict)
     for doc_key, sentences in doc_sent_map.items():
         for sent_key, sent_data in sentences.items():
-            new_key = (doc_key, sent_data['sent_id'])
-            flattened_dict[new_key] = sent_data['sentence']
+            new_key = (doc_key, sent_data["sent_id"])
+            flattened_dict[new_key] = sent_data["sentence"]
 
     # debug
     if debug:

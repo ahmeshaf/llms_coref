@@ -10,8 +10,6 @@ from inspect import getfullargspec
 from transformers import AutoModel, AutoTokenizer
 
 
-
-# helper function
 def init_weights(m):
     """
     Initialize the weights of the Linear layers in the neural network.
@@ -59,7 +57,7 @@ class BiEncoder(nn.Module):
 
         self.linear = nn.Sequential(
             nn.Linear(
-                self.hidden_size * 2, self.hidden_size
+                self.hidden_size, self.hidden_size
             ),  # 2 for CLS and one arg vector
         )
 
@@ -108,7 +106,7 @@ class BiEncoder(nn.Module):
         cls_vector, arg_vec = self.generate_cls_arg_vectors(
             input_ids, attention_mask, position_ids, global_attention_mask, arg
         )
-        return torch.cat([cls_vector, arg_vec], dim=1)
+        return torch.cat([arg_vec], dim=1)
 
     def frozen_forward(self, input_):
         return self.linear(input_)
@@ -144,4 +142,3 @@ class BiEncoder(nn.Module):
         self.model.save_pretrained(model_path + "/bert")
         self.tokenizer.save_pretrained(model_path + "/bert")
         torch.save(self.linear.state_dict(), model_path + "/linear.pt")
-

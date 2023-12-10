@@ -33,7 +33,9 @@ app = typer.Typer()
 
 
 @torch.no_grad
-def evaluate(model, mention_dict, selected_keys, device, top_k=10, text_key="marked_doc"):
+def evaluate(
+    model, mention_dict, selected_keys, device, top_k=10, text_key="marked_doc"
+):
     # check the model is on the specified device
     model.to(device)
     tokenizer = model.tokenizer
@@ -41,7 +43,9 @@ def evaluate(model, mention_dict, selected_keys, device, top_k=10, text_key="mar
     m_end_id = model.end_id
 
     # tokenize the dev set
-    tokenized_dev_dict = tokenize_bi(tokenizer, selected_keys, mention_dict, m_end_id, text_key=text_key)
+    tokenized_dev_dict = tokenize_bi(
+        tokenizer, selected_keys, mention_dict, m_end_id, text_key=text_key
+    )
     dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format(
         "torch"
     )  # list to torch tensor
@@ -243,14 +247,20 @@ def train_centroid(
 ):
     device = torch.device(device_id)
     # Initialize the model and tokenizer
-    bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
+    if Path(model_name).exists():
+        bert_model = model_name + "/bert"
+        linear_file = model_name + "/linear.pt"
+        linear_weights = torch.load(linear_file)
+        bi_encoder = BiEncoder(model_name=bert_model, linear_weights=linear_weights, long=long, is_training=True)
+    else:
+        bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
     bi_encoder.to(device)
     bi_encoder.train()
 
     optimizer = torch.optim.AdamW(
         [
-            {"params": bi_encoder.model.parameters(), "lr": 0.0001},
-            {"params": bi_encoder.linear.parameters(), "lr": 0.001},
+            {"params": bi_encoder.model.parameters(), "lr": 0.000001},
+            {"params": bi_encoder.linear.parameters(), "lr": 0.0001},
         ]
     )
     split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
@@ -259,7 +269,12 @@ def train_centroid(
         total_loss = 0.0
         # stacked Torch.FloatTensor()
         embeddings = generate_biencoder_embeddings(
-            mention_map, bi_encoder, train_selected_keys, 2, device, text_key=text_key,
+            mention_map,
+            bi_encoder,
+            train_selected_keys,
+            2,
+            device,
+            text_key=text_key,
         )
 
         embeddings = embeddings / torch.norm(embeddings, dim=1).reshape((-1, 1))
@@ -271,7 +286,7 @@ def train_centroid(
             for clus_id, clus in train_clusters.items()
         }
         loss = torch.squeeze(torch.zeros(1, 1, requires_grad=True).to(device))
-        for i, m_id in tqdm(
+        for j, m_id in tqdm(
             enumerate(train_selected_keys),
             desc=f"epoch {i}: Training BiEncoder",
             total=len(train_selected_keys),
@@ -297,22 +312,45 @@ def train_centroid(
                 torch.matmul(other_clusters_embs, target_embedding)
             )
             indices = torch.topk(dot_other_clusters, k=10).indices
-            other_clusters_mention_ids = [other_clusters[i][1][0] for i in indices]
+            for cc in other_clusters:
+                random.shuffle(cc[1])
+
+            other_clusters_mention_ids = [other_clusters[i][1][:20] for i in indices]
+
+            random.shuffle(train_clusters[target_cluster_id])
 
             batch_splits_ids = [m_id] + [
-                mid2 for mid2 in train_clusters[target_cluster_id] if mid2 != m_id
+                mid2 for mid2 in train_clusters[target_cluster_id][:20] if mid2 != m_id
             ]
 
             batch_embeddings = generate_biencoder_embeddings_withgrad(
-                mention_map, batch_splits_ids, bi_encoder, batch_size, device, text_key=text_key
+                mention_map,
+                batch_splits_ids,
+                bi_encoder,
+                batch_size,
+                device,
+                text_key=text_key,
             )
 
             batch_embeddings = batch_embeddings / torch.norm(
                 batch_embeddings, dim=1
             ).reshape((-1, 1))
 
-            other_clusters_embs = generate_biencoder_embeddings_withgrad(
-                mention_map, other_clusters_mention_ids, bi_encoder, batch_size, device, text_key=text_key
+            other_clusters_embs = torch.vstack(
+                [
+                    torch.mean(
+                        generate_biencoder_embeddings_withgrad(
+                            mention_map,
+                            clus,
+                            bi_encoder,
+                            batch_size,
+                            device,
+                            text_key=text_key,
+                        ),
+                        dim=0,
+                    )
+                    for clus in other_clusters_mention_ids
+                ]
             )
             other_clusters_embs = other_clusters_embs / torch.norm(
                 other_clusters_embs, dim=1
@@ -339,7 +377,7 @@ def train_centroid(
             #     optimizer.step()
             #     total_loss += loss.item()
             #     loss = torch.squeeze(torch.zeros(1, 1, requires_grad=True).to(device))
-
+        bi_encoder.save_model(f"{save_path}/checkpoint-{i}/")
         print(total_loss / len(train_selected_keys))
     return bi_encoder
 
@@ -455,12 +493,6 @@ def train(
         pbar.close()
         # Save the model
         bi_encoder.save_model(f"{save_path}/checkpoint-{epoch}/")
-        # torch.save(bi_encoder, f"{save_path}/checkpoint-{epoch}/")
-        # torch.save(
-        #     bi_encbi_encoderoder.state_dict(),
-        #     f"{save_path}bi_encoder_{epoch}.pt",
-        # )
-
         # Update the FAISS database
         try:
             train_index, _ = create_faiss_db(train_dataset, bi_encoder, device=device)
@@ -472,68 +504,6 @@ def train(
         evaluate(bi_encoder, mention_dict, dev_selected_keys, device)
 
     return bi_encoder
-
-
-@app.command()
-def train_biencoder(
-    mention_map_path: str,
-    model_name: str = "roberta-base-uncased",
-    text_key="marked_sentence",
-    long=False,
-    batch_size: int = 2,
-    epochs: int = 10,
-    save_path: str = "model_save_path",
-    learning_rate: float = 0.1,
-):
-    # Load the training and developing data
-    with open(mention_map_path, "rb") as f:
-        mention_map = pickle.load(f)
-
-    if not os.path.exists(save_path):
-        os.makedirs(save_path)
-
-    train_split_ids = [
-        m_id
-        for m_id, m in mention_map.items()
-        if m["men_type"] == "evt" and m["split"] == "train"
-    ]
-
-    train_clusters = defaultdict(list)
-    for m_id in train_split_ids:
-        train_clusters[mention_map[m_id]["gold_cluster"]].append(m_id)
-
-    dev_selected_ids = [
-        m_id
-        for m_id, m in mention_map.items()
-        if m["men_type"] == "evt" and m["split"] == "dev"
-    ]
-
-    # Use arguments in the train function
-    # trained_model = train(
-    #     mention_map,
-    #     train_split_ids,
-    #     dev_selected_ids,
-    #     model_name=model_name,
-    #     long=long,
-    #     text_key=text_key,
-    #     batch_size=batch_size,
-    #     epochs=epochs,
-    #     learning_rate=learning_rate,
-    #     save_path=save_path,
-    # )
-    trained_model = train_centroid(
-        mention_map,
-        train_split_ids,
-        train_clusters,
-        dev_selected_ids,
-        model_name=model_name,
-        long=long,
-        text_key=text_key,
-        batch_size=batch_size,
-        epochs=epochs,
-        learning_rate=learning_rate,
-        save_path=save_path,
-    )
 
 
 def save_ce_model(scorer_folder, parallel_model):
@@ -561,6 +531,70 @@ def predict_dpos(parallel_model, dev_ab, dev_ba, device, batch_size):
             all_scores_ba.append(scores_ba.detach().cpu())
 
     return torch.cat(all_scores_ab), torch.cat(all_scores_ba)
+
+
+@app.command()
+def train_biencoder(
+    mention_map_path: str,
+    model_name: str = "roberta-base-uncased",
+    text_key="marked_sentence",
+    long=False,
+    batch_size: int = 2,
+    epochs: int = 10,
+    save_path: str = "model_save_path",
+    learning_rate: float = 0.1,
+):
+    # Load the training and developing data
+    ensure_path(Path(save_path + "/a.l"))
+    with open(mention_map_path, "rb") as f:
+        mention_map = pickle.load(f)
+
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    train_split_ids = [
+        m_id
+        for m_id, m in mention_map.items()
+        if m["men_type"] == "evt" and m["split"] == "train"
+    ]
+
+    train_clusters = defaultdict(list)
+    for m_id in train_split_ids:
+        train_clusters[mention_map[m_id]["gold_cluster"]].append(m_id)
+
+    dev_selected_ids = [
+        m_id
+        for m_id, m in mention_map.items()
+        if m["men_type"] == "evt" and m["split"] == "dev"
+    ]
+    # dev_selected_ids = train_split_ids
+
+    # Use arguments in the train function
+    # trained_model = train(
+    #     mention_map,
+    #     train_split_ids,
+    #     dev_selected_ids,
+    #     model_name=model_name,
+    #     long=long,
+    #     text_key=text_key,
+    #     batch_size=batch_size,
+    #     epochs=epochs,
+    #     learning_rate=learning_rate,
+    #     save_path=save_path,
+    # )
+    trained_model = train_centroid(
+        mention_map,
+        train_split_ids,
+        train_clusters,
+        dev_selected_ids,
+        model_name=model_name,
+        long=long,
+        text_key=text_key,
+        batch_size=batch_size,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        save_path=save_path,
+    )
 
 
 def train_ce(

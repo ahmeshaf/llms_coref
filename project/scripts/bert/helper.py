@@ -90,7 +90,7 @@ def tokenize_bi(
     mention_ids,
     mention_map,
     m_end,
-    max_sentence_len=256,
+    max_sentence_len=150,
     text_key="marked_doc",
     label_key="gold_cluster",
     truncate=True,
