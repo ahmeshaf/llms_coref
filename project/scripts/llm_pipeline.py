@@ -1,3 +1,5 @@
+import random
+
 import numpy as np
 import openai
 import os
@@ -387,7 +389,7 @@ def run_llm_pipeline(
 
 
 @app.command()
-def run_llm_argu_pipeline(
+def run_llm_aug_pipeline(
     dataset_folder: str,
     debug: bool = False,
     gpt_version: str = "gpt-4",
@@ -428,6 +430,67 @@ def run_llm_argu_pipeline(
     # Debug
     if debug:
         print(result_dict)
+
+
+@app.command()
+def run_llm_tagging_pipeline(
+    aug_cache_file: Path, mention_map_file: Path, output_mention_map_file: Path
+):
+    ensure_path(output_mention_map_file)
+    aug_paraphrases = pickle.load(open(aug_cache_file, "rb"))
+    aug_paraphrases_json = {}
+    for sent_id, response in aug_paraphrases.items():
+        lines = response["predict"].strip().split("\n")
+        if "}" not in lines[-1]:
+            lines.append("}")
+        structured_lines = []
+        for line in lines:
+            line = line.strip('", ')
+            if line == "":
+                continue
+            if len(line.split(":")) == 1:
+                structured_lines.append(line)
+            elif len(line.split(":")) >= 2:
+                splits = line.split(":")
+                key = splits[0]
+                value = ":".join(splits[1:])
+                key = key.strip(' ",')
+                key = f'{json.dumps(key)}'
+                value = value.strip(' ",')
+                value = f'{json.dumps(value)},'
+                structured_lines.append(key + ":" + value)
+            else:
+                raise Exception
+        structured_lines[-2] = structured_lines[-2].strip(",")
+        structured_json = "\n".join(structured_lines)
+        structured_json = json.loads(structured_json)
+
+        aug_paraphrases_json[sent_id] = structured_json
+    # {sent_id: json.loads(response["predict"]) for sent_id, response in aug_paraphrases.items()}
+    mention_map = pickle.load(open(mention_map_file, "rb"))
+
+    doc_id2m_ids = defaultdict(list)
+    for m_id, mention in mention_map.items():
+        if mention["men_type"] == "evt":
+            doc_id2m_ids[mention["doc_id"]].append(m_id)
+
+    paraphrase_key = ["Most Esoteric", "Moderately Esoteric", "Less Esoteric"]
+
+    for doc_id, m_ids in doc_id2m_ids.items():
+        curr_key = random.choice(paraphrase_key)
+        for m_id in m_ids:
+            sentence_id = str(mention_map[m_id]["sentence_id"])
+            if (doc_id, sentence_id) in aug_paraphrases_json:
+                paraphrase_sentence = aug_paraphrases_json[(doc_id, sentence_id)][curr_key]
+                marked_sentence = mention_map[m_id]["marked_sentence"]
+                event_trigger = mention_map[m_id]["mention_text"]
+                print("Original Marked Sentence: ", marked_sentence)
+                print("Original Event Trigger: ", event_trigger)
+                print("Paraphrased Sentence: ", paraphrase_sentence)
+                # TODO: Run LLM Tagging routine with these three parameters
+                # json_response = "LLM output"
+                # print(json_response)
+                pass
 
 
 if __name__ == "__main__":
