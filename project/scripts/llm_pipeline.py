@@ -4,6 +4,7 @@ import os
 import pickle
 import re
 import typer
+import json
 
 from collections import defaultdict
 from datetime import datetime
@@ -26,15 +27,26 @@ from .coref_prompt_collections import (
     twoshot_prompt,
     zeroshot_prompt,
 )
+from .special_prompt_collections import (
+    davidson_prompt, 
+    quine_prompt, 
+    amr_prompt, 
+    arg_prompt,
+    adv_prompt 
+)
+
 
 from .bert.helper import get_context
-from .helper import evaluate, ensure_path
-
-# global variables
-split_index_map = {"train": 0, "dev": 1, "test": 2}
+from .helper import evaluate, ensure_path, ensure_dir
 
 app = typer.Typer()
 
+class JsonParser:
+    def __init__(self):
+        pass
+
+    def parse(self, output):
+        return json.loads(output)
 
 def prompt_and_parser_factory(
     prompt_type: str,
@@ -49,6 +61,14 @@ def prompt_and_parser_factory(
         return fourshot_prompt, cot_output_parser
     elif prompt_type == "eightshot":
         return eightshot_prompt, cot_output_parser
+    elif prompt_type == "davidson":
+        return davidson_prompt, JsonParser()
+    elif prompt_type == "quine":
+        return quine_prompt, JsonParser()
+    elif prompt_type == "amr":
+        return amr_prompt, JsonParser()
+    elif prompt_type == "arg":
+        return arg_prompt, JsonParser()
     else:
         raise ValueError(f"Invalid prompt type: {prompt_type}")
 
@@ -67,7 +87,7 @@ def llm_coref(
     mention_map: Dict,
     prompt: PromptTemplate,
     parser: StructuredOutputParser,
-    cache_file: Path = "/tmp/gpt_pred_coref.pkl",
+    cache_dir: Path = "/tmp/gpt_pred_coref/",
     gpt_version: str = "gpt-4",
     save_folder: Path = "../../llm_results",
     text_key: str = "marked_doc",
@@ -106,7 +126,9 @@ def llm_coref(
         A dictionary containing detailed prediction results for each event pair,
         including event IDs, event sentences, and parsed predictions.
     """
+    cache_file = os.path.join(cache_dir, f"{gpt_version}_{run_name}_cache.pkl")
     ensure_path(cache_file)
+    cache_file = Path(cache_file)
 
     if cache_file.exists():
         raw_cache = pickle.load(open(cache_file, "rb"))
@@ -136,7 +158,7 @@ def llm_coref(
         event1_text = get_context(event1_data, text_key)
         event2_text = get_context(event2_data, text_key)
 
-        format_prompt = chain.prompt.format_prompt(event1=event1_text, event2=event2_text)
+        # format_prompt = chain.prompt.format_prompt(event1=event1_text, event2=event2_text)
 
         if evt_pair in raw_cache:
             predict = raw_cache[evt_pair]["predict"]
@@ -151,10 +173,8 @@ def llm_coref(
                 }
                 raw_cache[evt_pair] = {"predict": predict, "predict_cost": predict_cost}
                 pickle.dump(raw_cache, open(cache_file, "wb"))
-
         try:
             predict_dict = parser.parse(predict)
-            result_list.append(predict)
 
         except Exception as e:
             print(e)
@@ -162,8 +182,13 @@ def llm_coref(
             # in this case, we take the first one, following the setting in the paper cot.
             answers = extract_answers(str(predict))
             print("total answers detected: ", len(answers))
-            predict_dict = {"Answer": answers[0]}
+            if answers:
+                predict_dict = {"Answer": answers[0]}
+            else:
+                print("No answer detected, set to False")
+                predict_dict = {"Answer": "False"}
 
+        result_list.append(predict_dict["Answer"])
         result_dict[evt_pair] = {
             "event1_id": event1_id,
             "event2_id": event2_id,
@@ -184,72 +209,109 @@ def llm_coref(
         save_folder,
         f"{gpt_version}_{run_name}_predict_result_{timestamp}.pkl",
     )
-    pickle.dump(result_dict, open(save_path, "wb"))
-    print(f"Saved prediction results to {save_path}")
+    # pickle.dump(result_dict, open(save_path, "wb"))
+    # print(f"Saved prediction results to {save_path}")
 
-    result_list = [1 if r == "True" else 0 for r in result_list]
-    return result_list, result_dict
+    result_array = []
+    str_count = 0
+    bool_count = 0
+    other_count = 0
+    for r in result_list:
+        if isinstance(r, str):
+            if r == "True":
+                r = 1
+            else:
+                r = 0
+            str_count += 1
+        elif isinstance(r, bool):
+            if r:
+                r = 1
+            else:
+                r = 0
+            bool_count += 1
+        else:
+            print("Unknown type: ", type(r))
+            print("r: ", r)
+            r = 0
+            other_count += 1
+        result_array.append(r)
+    print("Total: ", len(result_list))
+    print("str_count: ", str_count)
+    print("bool_count: ", bool_count)
+    print("other_count: ", other_count)
+    result_array = np.array(result_array)
+    return result_array, result_dict
 
-
-def llm_explanation(
-    event_pairs: List[Tuple[str, str]],
-    mention_map: Dict,
+def llm_argu(
+    flatten_doc_sent_map: Dict,
     prompt: PromptTemplate,
+    parser: StructuredOutputParser,
+    cache_dir: Path = "/tmp/gpt_argu/",
     gpt_version: str = "gpt-4",
-    save_folder: Path = "../../llm_explanation",
-    text_key: str = "marked_doc",
-):
+    save_folder: Path = "../../llm_argu",
+    run_name: str = "adv",
+    temperature: float = 0.7
+) -> Dict:
+    
+    # Prepare the cache file
+    cache_file = os.path.join(cache_dir, f"{gpt_version}_{run_name}_cache.pkl")
+    ensure_path(cache_file)
+    cache_file = Path(cache_file)
+
+    if cache_file.exists():
+        raw_cache = pickle.load(open(cache_file, "rb"))
+    else:
+        raw_cache = {}
+
+    # Initialize the result dict
     result_dict = defaultdict(dict)
-    llm = ChatOpenAI(temperature=0.0, model=gpt_version, request_timeout=180)
+
+    # initialize the llm
+    llm = ChatOpenAI(
+        temperature=temperature, model=gpt_version, request_timeout=180
+    )  # Set the request_timeout to 180 seconds
     chain = LLMChain(llm=llm, prompt=prompt)
 
-    for evt_pair in tqdm(event_pairs):
-        event1_id = evt_pair[0]
-        event2_id = evt_pair[1]
-
-        event1_data = mention_map.get(event1_id)
-        event2_data = mention_map.get(event2_id)
-
-        if event1_data is None or event2_data is None:
+    # Generate
+    for key, value in tqdm(flatten_doc_sent_map.items()):
+        if value is None:
             continue
 
-        event1_label = event1_data["gold_cluster"]
-        event2_label = event2_data["gold_cluster"]
-        true_label = "True" if event1_label == event2_label else "False"
+        if key in raw_cache:
+            predict = raw_cache[key]["predict"]
+        else:
+            with get_openai_callback() as cb:
+                predict = chain.run(event=value)
+                predict_cost = {
+                    "Total": cb.total_tokens,
+                    "Prompt": cb.prompt_tokens,
+                    "Completion": cb.completion_tokens,
+                    "Cost": cb.total_cost
+                }
+                raw_cache[key] = {"predict": predict, "predict_cost": predict_cost}
+                pickle.dump(raw_cache, open(cache_file, "wb"))
+        try:
+            predict_dict = parser.parse(predict)
 
-        event1 = get_context(event1_data, text_key)
-        event2 = get_context(event2_data, text_key)
-
-        answer = chain.run(event1=event1, event2=event2, true_label=true_label)
-        format_prompt = chain.prompt.format_prompt(
-            event1=event1, event2=event2, true_label=true_label
-        )
-
-        result_dict[evt_pair] = {
-            "prompt": format_prompt,
-            "event1_id": event1_id,
-            "event2_id": event2_id,
-            "event1": event1,
-            "event2": event2,
-            "event1_label": event1_label,
-            "event2_label": event2_label,
-            "eveent1_trigger": event1_data["mention_text"],
-            "event2_trigger": event2_data["mention_text"],
-            "answer": answer,
-        }
+        except Exception as e:
+            print(e)
+            
+        result_dict[key] = predict_dict
+        
 
     # Save the result_dict
+    save_folder = os.path.join(save_folder, run_name)
     if not os.path.exists(save_folder):
         os.makedirs(save_folder)
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     save_path = os.path.join(
-        save_folder, f"{gpt_version}_explanation_result_{timestamp}.pkl"
+        save_folder,
+        f"{gpt_version}_{run_name}_argument_result_{timestamp}.pkl",
     )
     pickle.dump(result_dict, open(save_path, "wb"))
-    print(f"Saved explanation results to {save_path}")
+    print(f"Saved prediction results to {save_path}")
 
     return result_dict
-
 
 @app.command()
 def run_llm_pipeline(
@@ -259,10 +321,12 @@ def run_llm_pipeline(
     results_file: Path,
     debug: bool = False,
     gpt_version: str = "gpt-4",
-    gpt_raw_cache_file: Path = "/tmp/gpt.cache",
+    gpt_raw_cache_dir: Path = "/tmp/gpt_pred_coref/",
+    save_folder: Path = "../../llm_results",
     experiment_name: str = "baseline",
+    text_key: str = "marked_doc",
 ):
-    ensure_path(gpt_raw_cache_file)
+    ensure_dir(gpt_raw_cache_file)
     # Set up openai api key
     _ = load_dotenv(find_dotenv())  # Read local .env file
     openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -288,14 +352,16 @@ def run_llm_pipeline(
 
     prompt, parser = prompt_and_parser_factory(experiment_name)
 
-    result_list, _ = llm_coref(
+    result_list, result_dict = llm_coref(
         mention_pairs,
         mention_map,
         prompt,
         parser,
-        gpt_version,
+        gpt_version=gpt_version,
         save_folder=save_folder,
         run_name=experiment_name,
+        text_key=text_key,
+        cache_dir=gpt_raw_cache_dir,
     )
 
     # Evaluate the result
@@ -304,40 +370,62 @@ def run_llm_pipeline(
     scores = evaluate(
         mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
     )
-
+    
+    # Save the results
     pickle.dump(
-        (mention_pairs, result_array, result_array),
+        (mention_pairs, result_list, result_array),
         open(results_file, "wb"),
     )
-
+    
+    # Debug
+    if debug:
+        print(result_dict)
+    
     print(scores)
 
 
 @app.command()
-def run_llm_explanation(
+def run_llm_argu_pipeline(
     dataset_folder: str,
-    mention_pairs_path: Path,
     debug: bool = False,
     gpt_version: str = "gpt-4",
-    save_folder: Path = "../../llm_explanation",
+    gpt_raw_cache_dir: Path = "/tmp/gpt_argu/",
+    save_folder: Path = "../../llm_argu_results",
+    experiment_name: str = "adv",
 ):
+    ensure_path(gpt_raw_cache_dir)
     # Set up openai api key
-    _ = load_dotenv(find_dotenv())
+    _ = load_dotenv(find_dotenv())  # Read local .env file
     openai.api_key = os.environ["OPENAI_API_KEY"]
 
     # Read the mention_map from the dataset_folder
-    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+    doc_sent_map = pickle.load(open(dataset_folder + "/doc_sent_map.pkl", "rb"))
 
-    # Get the mention pairs
-    mention_pairs = sorted(pickle.load(open(mention_pairs_path, "rb")))
+    # Flatten the doc_sent_map
+    flattened_dict = defaultdict(dict)
+    for doc_key, sentences in doc_sent_map.items():
+        for sent_key, sent_data in sentences.items():
+            new_key = (doc_key, sent_data['sent_id'])
+            flattened_dict[new_key] = sent_data['sentence']
 
+    # debug
     if debug:
-        print("Total mention pairs: ", len(mention_pairs))
-        mention_pairs = mention_pairs[:5]
+        print("Total sentences: ", len(flattened_dict))
+        first_5_items = list(flattened_dict.items())[:5]
+        flattened_dict = dict(first_5_items)
 
-    result_dict = llm_explanation(
-        mention_pairs, mention_map, explanation_prompt, gpt_version, save_folder
+    result_dict = llm_argu(
+        flattened_dict,
+        adv_prompt,
+        JsonParser(),
+        gpt_version=gpt_version,
+        save_folder=save_folder,
+        run_name=experiment_name,
+        cache_dir=gpt_raw_cache_dir,
     )
+    # Debug
+    if debug:
+        print(result_dict)
 
 
 if __name__ == "__main__":

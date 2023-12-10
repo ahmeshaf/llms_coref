@@ -172,6 +172,13 @@ def ensure_path(file: Path):
         file = Path(file)
     if not file.parent.exists():
         file.parent.mkdir(parents=True)
+        
+def ensure_dir(dir_path: Path):
+    # Ensure the file is Path object
+    if not isinstance(dir_path, Path):
+        dir_path = Path(dir_path)
+    if not dir_path.exists():
+        dir_path.mkdir(parents=True)
 
 
 def read(key, response):
