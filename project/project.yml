@@ -177,7 +177,7 @@ commands:
         ./outputs/knn_ce/train_neighbors_2.pkl 
         ./outputs/mention_pairs/knn_ce/train.pairs
         --ce-text-key neighbors_2 
-        --top-k 5
+        --top-k 5 --force
 
       - >-
         python -m scripts.knn save-knn-mention-pairs-ce

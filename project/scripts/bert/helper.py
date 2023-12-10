@@ -6,6 +6,7 @@ import random
 
 import faiss
 import torch
+from datasets import Dataset
 from torch.utils.data import Dataset as torch_Dataset
 
 from .models import CrossEncoder
@@ -89,7 +90,7 @@ def tokenize_bi(
     mention_ids,
     mention_map,
     m_end,
-    max_sentence_len=None,
+    max_sentence_len=256,
     text_key="marked_doc",
     label_key="gold_cluster",
     truncate=True,
@@ -399,7 +400,7 @@ def forward_ab(parallel_model, ab_dict, device, indices, lm_only=False):
     batch_am_ab = ab_dict["attention_mask"][indices, :]
     batch_posits_ab = ab_dict["position_ids"][indices, :]
     am_g_ab, arg1_ab, arg2_ab = get_arg_attention_mask_ce(
-        batch_tensor_ab, parallel_model
+        batch_tensor_ab, parallel_model.module.start_id, parallel_model.module.end_id
     )
 
     batch_tensor_ab.to(device)
@@ -454,7 +455,7 @@ def tokenize_ce(
 
     pairwise_bert_instances_ab = []
     pairwise_bert_instances_ba = []
-    
+
     doc_start = "<doc-s>"
     doc_end = "</doc-s>"
 
@@ -550,16 +551,15 @@ def tokenize_ce(
 
 
 # helper functions
-@torch.no_grad()
 def generate_embeddings(
     batch,
     model,
     device,
-):  
+):
     embeddings = process_batch(batch, model, device)
-    
+
     # move the embeddings to cpu to save gpu memory
-    batch["embeddings"] = embeddings.cpu()
+    batch["embeddings"] = embeddings
     return batch
 
 
@@ -568,7 +568,7 @@ def create_faiss_db(dataset, model, device):
     processed_dataset = dataset.map(
         lambda batch: generate_embeddings(batch, model, device),
         batched=True,
-        batch_size=256, # ce will take up lots of memory
+        batch_size=256,  # ce will take up lots of memory
     )
 
     embeddings = processed_dataset["embeddings"]
@@ -593,7 +593,7 @@ class VectorDatabase:
 
     def set_index(self, faiss_index, dataset):
         self.faiss_index = faiss_index
-        self.dataset = dataset 
+        self.dataset = dataset
 
     def get_hard_negative(self, anchor_embeddings, true_label):
         # Convert anchor embeddings from tensor to numpy for FAISS
@@ -695,14 +695,88 @@ def process_batch(batch, model, device):
         global_attention_mask = batch["global_attention_mask"].to(device)
         arg_attention_mask1 = batch["arg_attention_mask1"].to(device)
         arg_attention_mask2 = batch["arg_attention_mask2"].to(device)
-        
+
         embeddings = model(
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
             global_attention_mask=global_attention_mask,
-            arg1 = arg_attention_mask1,
-            arg2 = arg_attention_mask2,
-            lm_only=True, # only return the embeddings for the llm instead of scores
+            arg1=arg_attention_mask1,
+            arg2=arg_attention_mask2,
+            lm_only=True,  # only return the embeddings for the llm instead of scores
         )
+    return embeddings
+
+
+def generate_biencoder_embeddings(
+    mention_map, bi_encoder_model, split_ids, batch_size, device, text_key,
+):
+    """
+    Generates embeddings using a bi-encoder model for the given split IDs.
+
+    Parameters
+    ----------
+    mention_map : dict
+        A map of mentions to their respective information.
+    bi_encoder_model : Model
+        The bi-encoder model to generate embeddings.
+    split_ids : List[str]
+        List of split IDs for which to generate embeddings.
+    batch_size : int
+        Size of each batch for processing.
+    device : torch.device,
+        The device to run the model on (default is "cuda:0").
+
+    Returns
+    -------
+    torch.FloatTensor
+        A tensor of embeddings of size (len(split_ids), embedding_size).
+    """
+    # Move the model to device incase it is not there
+    bi_encoder_model.to(device)
+    tokenizer = bi_encoder_model.tokenizer
+    m_start_id = bi_encoder_model.start_id
+    m_end_id = bi_encoder_model.end_id
+
+    # Tokenize to get input_ids, position_ids, and attention_masks
+    tokenized_split_dict = tokenize_bi(tokenizer, split_ids, mention_map, m_end_id, text_key=text_key)
+
+    # Convert the dict object into a HuggingFace dataset object with torch tensors
+    tokenized_dataset = Dataset.from_dict(tokenized_split_dict).with_format("torch")
+    tokenized_dataset = tokenized_dataset.map(
+        lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
+        batched=True,
+        batch_size=batch_size,
+    )
+
+    tokenized_dataset = tokenized_dataset.map(
+        lambda batch: generate_embeddings(batch, bi_encoder_model, device),
+        batched=True,
+        batch_size=batch_size,
+    )
+
+    # # Extract the embeddings
+    embeddings = tokenized_dataset["embeddings"]
+    # embeddings = embeddings.reshape(len(split_ids), -1)
+
+    return embeddings
+
+
+def generate_biencoder_embeddings_withgrad(
+    mention_map, batch_splits_ids, bi_encoder_model, batch_size, device, text_key
+):
+    # Move the model to device incase it is not there
+    bi_encoder_model.to(device)
+    tokenizer = bi_encoder_model.tokenizer
+    m_start_id = bi_encoder_model.start_id
+    m_end_id = bi_encoder_model.end_id
+
+    # Tokenize to get input_ids, position_ids, and attention_masks
+    batch_dict = tokenize_bi(tokenizer, batch_splits_ids, mention_map, m_end_id, text_key=text_key)
+
+    batch = get_arg_attention_mask_wrapper(batch_dict, m_start_id, m_end_id)
+
+    # feed all the data into the process batch
+    embeddings = process_batch(batch, bi_encoder_model, device)
+    embeddings = embeddings.reshape((len(batch_splits_ids), -1))
     return embeddings

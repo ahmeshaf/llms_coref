@@ -2,11 +2,14 @@
 This module contains the implementation of a Bidirectional Encoder (BiEncoder) using the transformers library. 
 """
 
+from datasets import Dataset
 import torch
 import torch.nn as nn
 
 from inspect import getfullargspec
 from transformers import AutoModel, AutoTokenizer
+
+
 
 # helper function
 def init_weights(m):
@@ -141,3 +144,4 @@ class BiEncoder(nn.Module):
         self.model.save_pretrained(model_path + "/bert")
         self.tokenizer.save_pretrained(model_path + "/bert")
         torch.save(self.linear.state_dict(), model_path + "/linear.pt")
+
