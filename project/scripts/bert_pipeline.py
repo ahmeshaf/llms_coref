@@ -42,7 +42,7 @@ def predict_trained_model(
     max_sentence_len=1024,
     long=True,
     device="cuda:0",
-    batch_size=256,
+    batch_size=128,
 ):
     device = torch.device(device)
     device_ids = list(range(1))
@@ -114,7 +114,9 @@ def run_ce(
 ):
     # generate the intermediate ce_scores to be used for clustering
     if ce_score_file.exists() and not ce_force:
-        mention_pairs, ce_scores_ab, ce_scores_ba = pickle.load(open(ce_score_file, "rb"))
+        mention_pairs, ce_scores_ab, ce_scores_ba = pickle.load(
+            open(ce_score_file, "rb")
+        )
     else:
         ce_scores_ab, ce_scores_ba = get_ce_scores(
             mention_map,
@@ -126,7 +128,9 @@ def run_ce(
             device=device,
         )
         mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
-        pickle.dump((mention_pairs, ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb"))
+        pickle.dump(
+            (mention_pairs, ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb")
+        )
 
     predictions = (ce_scores_ab + ce_scores_ba) / 2
     similarities = torch.squeeze(predictions) > ce_threshold
@@ -152,7 +156,7 @@ def run_ce_mention_pairs(
     ce_folder,
     text_key="marked_sentence",
     max_sentence_len: int = 1024,
-    is_long=False,
+    is_long: bool = False,
     device="cuda:0",
     ce_score_file: Path = None,
     ce_threshold: float = 0.5,

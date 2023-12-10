@@ -6,6 +6,7 @@ import random
 
 import faiss
 import torch
+from datasets import Dataset
 from torch.utils.data import Dataset as torch_Dataset
 
 from .models import CrossEncoder
@@ -399,7 +400,7 @@ def forward_ab(parallel_model, ab_dict, device, indices, lm_only=False):
     batch_am_ab = ab_dict["attention_mask"][indices, :]
     batch_posits_ab = ab_dict["position_ids"][indices, :]
     am_g_ab, arg1_ab, arg2_ab = get_arg_attention_mask_ce(
-        batch_tensor_ab, parallel_model
+        batch_tensor_ab, parallel_model.module.start_id, parallel_model.module.end_id
     )
 
     batch_tensor_ab.to(device)
@@ -550,7 +551,6 @@ def tokenize_ce(
 
 
 # helper functions
-@torch.no_grad()
 def generate_embeddings(
     batch,
     model,
@@ -559,7 +559,7 @@ def generate_embeddings(
     embeddings = process_batch(batch, model, device)
     
     # move the embeddings to cpu to save gpu memory
-    batch["embeddings"] = embeddings.cpu()
+    batch["embeddings"] = embeddings
     return batch
 
 
@@ -705,4 +705,66 @@ def process_batch(batch, model, device):
             arg2 = arg_attention_mask2,
             lm_only=True, # only return the embeddings for the llm instead of scores
         )
+    return embeddings
+
+
+def generate_biencoder_embeddings(
+    mention_map, bi_encoder_model, split_ids, batch_size, device
+):
+    """
+    Generates embeddings using a bi-encoder model for the given split IDs.
+
+    Parameters
+    ----------
+    mention_map : dict
+        A map of mentions to their respective information.
+    bi_encoder_model : Model
+        The bi-encoder model to generate embeddings.
+    split_ids : List[str]
+        List of split IDs for which to generate embeddings.
+    batch_size : int
+        Size of each batch for processing.
+    device : torch.device,
+        The device to run the model on (default is "cuda:0").
+
+    Returns
+    -------
+    torch.FloatTensor
+        A tensor of embeddings of size (len(split_ids), embedding_size).
+    """
+    # Move the model to device incase it is not there
+    bi_encoder_model.to(device)
+    tokenizer = bi_encoder_model.tokenizer
+    m_start_id = bi_encoder_model.start_id
+    m_end_id = bi_encoder_model.end_id
+
+    # Tokenize to get input_ids, position_ids, and attention_masks
+    tokenized_split_dict = tokenize_bi(tokenizer, split_ids, mention_map, m_end_id)
+
+    # Convert the dict object into a HuggingFace dataset object with torch tensors
+    tokenized_dataset = Dataset.from_dict(tokenized_split_dict).with_format("torch")
+    tokenized_dataset = tokenized_dataset.map(
+        lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
+        batched=True,
+        batch_size=batch_size,
+    )
+
+    # tokenized_dataset = tokenized_dataset.map(
+    #     lambda batch: generate_embeddings(batch, bi_encoder_model, device),
+    #     batched=True,
+    #     batch_size=batch_size,
+    # )
+    batched_embeddings = []
+    for batch in range(0, len(tokenized_dataset), 8):
+
+        embeddings = generate_embeddings(batch, bi_encoder_model, device)
+
+        batched_embeddings.append(embeddings)
+
+    # batched_embeddings = torch.vstack(batched_embeddings)
+
+    # # Extract the embeddings
+    # embeddings = tokenized_dataset["embeddings"]
+    embeddings = embeddings.reshape(len(split_ids), -1)
+
     return embeddings
