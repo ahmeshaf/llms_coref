@@ -293,7 +293,7 @@ def save_knn_mention_pairs_ce(
     ensure_path(pairs_output_file)
     mention_map = pickle.load(open(mention_map_file, "rb"))
     mention_pairs = pickle.load(open(mention_pairs_path, "rb"))
-
+    # mention_pairs = mention_pairs[:200]
     model = load_model_from_path(CrossEncoder, model_path, training=False, long=False)
     mention_pairs_res = get_knn_pairs(
         mention_map,
