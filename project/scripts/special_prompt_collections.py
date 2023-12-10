@@ -109,3 +109,26 @@ adv_prompt = PromptTemplate(
     template=adv_template,
     input_variables=['event'],
 )
+
+# Tagging
+tag_template="""
+You are an expert Event Trigger Tagger.
+
+Original Marked Sentence: {original_sentence}
+
+Original Event Trigger: {original_event_trigger}
+
+Paraphrased Sentence: {paraphrased_sentence}
+
+Please find the Paraphrased Trigger in the Paraphrased Sentence. Then, mark Paraphrased Trigger in Paraphrased Sentence with <m> and </m>
+Your output should be in JSON Format as follows:
+{{
+   Paraphrased Trigger: 
+   Paraphrased Marked Sentence:
+}}
+Be concise
+"""
+tag_prompt = PromptTemplate(
+    template=tag_template,
+    input_variables=['original_sentence', 'original_event_trigger', 'paraphrased_sentence'],
+)
