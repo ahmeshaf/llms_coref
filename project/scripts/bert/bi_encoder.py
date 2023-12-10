@@ -2,11 +2,13 @@
 This module contains the implementation of a Bidirectional Encoder (BiEncoder) using the transformers library. 
 """
 
+from datasets import Dataset
 import torch
 import torch.nn as nn
 
 from inspect import getfullargspec
 from transformers import AutoModel, AutoTokenizer
+
 
 
 # helper function
