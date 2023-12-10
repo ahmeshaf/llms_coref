@@ -26,12 +26,14 @@ from .helper import (
     tokenize_ce,
     forward_ab,
     generate_biencoder_embeddings,
+    generate_biencoder_embeddings_withgrad,
 )
 
 app = typer.Typer()
 
 
-def evaluate(model, mention_dict, selected_keys, device, top_k=10):
+@torch.no_grad
+def evaluate(model, mention_dict, selected_keys, device, top_k=10, text_key="marked_doc"):
     # check the model is on the specified device
     model.to(device)
     tokenizer = model.tokenizer
@@ -62,7 +64,7 @@ def evaluate(model, mention_dict, selected_keys, device, top_k=10):
     with torch.no_grad():
         for batch in tqdm(dev_dataloader):
             # skip the batch if the mention is a singleton
-            mention_id = batch["mention_id"][0]
+            mention_id = batch["unit_ids"][0]
             if mention_dict[mention_id]["tag_descriptor"] == "singleton":
                 singleton_count += 1
                 continue
@@ -86,6 +88,53 @@ def evaluate(model, mention_dict, selected_keys, device, top_k=10):
     print("recall:", recall)
 
 
+def normalize_embeddings(embeddings):
+    return embeddings / torch.norm(embeddings, dim=1).reshape((-1, 1))
+
+
+def calculate_cluster_embeddings(train_clusters, embeddings, split_id2index):
+    return {
+        clus_id: torch.mean(
+            embeddings[[split_id2index[m_id] for m_id in clus], :], dim=0
+        )
+        for clus_id, clus in train_clusters.items()
+    }
+
+
+def prepare_embeddings_for_loss_calculation(
+    mention_map,
+    train_clusters,
+    m_id,
+    bi_encoder,
+    batch_size,
+    device,
+    cluster_embeddings,
+    split_id2index,
+):
+    target_cluster_id = mention_map[m_id]["gold_cluster"]
+    target_embedding = cluster_embeddings[target_cluster_id].reshape((-1, 1))
+
+    other_clusters = [
+        (cl_id, m_ids)
+        for cl_id, m_ids in train_clusters.items()
+        if cl_id != target_cluster_id
+    ]
+    other_clusters_embs = torch.vstack(
+        [cluster_embeddings[cl_id] for cl_id, _ in other_clusters]
+    )
+
+    batch_splits_ids = [m_id] + [
+        mid for mid in train_clusters[target_cluster_id] if mid != m_id
+    ]
+    batch_embeddings = generate_biencoder_embeddings_withgrad(
+        mention_map, batch_splits_ids, bi_encoder, batch_size, device
+    )
+    batch_embeddings = normalize_embeddings(batch_embeddings)
+    target_cluster_embedding = torch.mean(batch_embeddings, dim=0)
+
+    return target_embedding, target_cluster_embedding, other_clusters_embs
+
+
 def add_positive_candidates(mention_map):
     cluster2mentions = {}
     for m_id, mention in mention_map.items():
@@ -97,6 +146,85 @@ def add_positive_candidates(mention_map):
     for mention_ids in cluster2mentions.values():
         for m_id in mention_ids:
             mention_map[m_id]["positive_candidates"] = mention_ids
+
+
+def calculate_loss(target_embedding, target_cluster_embedding, other_clusters_embs):
+    dot_product_with_other_clusters = torch.matmul(
+        other_clusters_embs, target_embedding
+    )
+    hard_negs = torch.topk(dot_product_with_other_clusters, k=10).values
+    curr_loss = -torch.dot(
+        target_embedding.squeeze(), target_cluster_embedding.squeeze()
+    ) + torch.log(torch.sum(torch.exp(hard_negs)))
+    return curr_loss
+
+
+def train_centroid_gpt(
+    mention_map,
+    train_selected_keys,
+    train_clusters,
+    dev_selected_keys,
+    model_name="roberta-base-cased",
+    long=False,
+    text_key="marked_doc",
+    learning_rate=0.1,
+    batch_size=2,
+    epochs=1,
+    save_path="../models/bi_encoder/",
+    device_id="cuda:0",
+):
+    device = torch.device(device_id)
+    bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
+    bi_encoder.to(device)
+    bi_encoder.train()
+
+    optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
+    split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
+
+    for epoch in range(epochs):
+        total_loss = 0.0
+        embeddings = generate_biencoder_embeddings(
+            mention_map, bi_encoder, train_selected_keys, batch_size, device
+        )
+        embeddings = normalize_embeddings(embeddings)
+
+        cluster_embeddings = calculate_cluster_embeddings(
+            train_clusters, embeddings, split_id2index
+        )
+
+        for i, m_id in tqdm(
+            enumerate(train_selected_keys),
+            desc=f"Epoch {epoch}: Training BiEncoder",
+            total=len(train_selected_keys),
+        ):
+            optimizer.zero_grad()
+            (
+                target_embedding,
+                target_cluster_embedding,
+                other_clusters_embs,
+            ) = prepare_embeddings_for_loss_calculation(
+                mention_map,
+                train_clusters,
+                m_id,
+                bi_encoder,
+                batch_size,
+                device,
+                cluster_embeddings,
+                split_id2index,
+            )
+
+            curr_loss = calculate_loss(
+                target_embedding, target_cluster_embedding, other_clusters_embs
+            )
+            # print("curr loss:", curr_loss.item())
+            curr_loss.backward()
+            optimizer.step()
+
+            total_loss += curr_loss.item()
+
+        print(f"Average Loss Epoch {epoch}: {total_loss / len(train_selected_keys)}")
+
+    return bi_encoder
 
 
 def train_centroid(
@@ -119,16 +247,22 @@ def train_centroid(
     bi_encoder.to(device)
     bi_encoder.train()
 
-    optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": bi_encoder.model.parameters(), "lr": 0.0001},
+            {"params": bi_encoder.linear.parameters(), "lr": 0.001},
+        ]
+    )
     split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
     for i in range(epochs):
+        evaluate(bi_encoder, mention_map, dev_selected_keys, device, text_key=text_key)
         total_loss = 0.0
         # stacked Torch.FloatTensor()
         embeddings = generate_biencoder_embeddings(
             mention_map, bi_encoder, train_selected_keys, 2, device
         )
 
-        embeddings = embeddings / torch.norm(embeddings, dim=0)
+        embeddings = embeddings / torch.norm(embeddings, dim=1).reshape((-1, 1))
 
         cluster_embeddings = {
             clus_id: torch.mean(
@@ -136,8 +270,6 @@ def train_centroid(
             )
             for clus_id, clus in train_clusters.items()
         }
-        # cluster_embeddings = {clus_id: emb/torch.norm(embeddings, dim=0) for clus_id, emb in cluster_embeddings.items()}
-
         loss = torch.squeeze(torch.zeros(1, 1, requires_grad=True).to(device))
         for i, m_id in tqdm(
             enumerate(train_selected_keys),
@@ -147,9 +279,12 @@ def train_centroid(
             optimizer.zero_grad()
             target_embedding = embeddings[split_id2index[m_id], :].reshape((-1, 1))
             target_cluster_id = mention_map[m_id]["gold_cluster"]
-            target_cluster_embedding = cluster_embeddings[target_cluster_id].reshape(
-                (-1, 1)
-            )
+            # target_cluster_embedding = cluster_embeddings[target_cluster_id]
+            other_clusters = [
+                (cl_id, m_ids)
+                for cl_id, m_ids in train_clusters.items()
+                if cl_id != target_cluster_id
+            ]
 
             other_clusters_embs = torch.vstack(
                 [
@@ -161,7 +296,36 @@ def train_centroid(
             dot_other_clusters = torch.squeeze(
                 torch.matmul(other_clusters_embs, target_embedding)
             )
+            indices = torch.topk(dot_other_clusters, k=10).indices
+            other_clusters_mention_ids = [other_clusters[i][1][0] for i in indices]
+
+            batch_splits_ids = [m_id] + [
+                mid2 for mid2 in train_clusters[target_cluster_id] if mid2 != m_id
+            ]
+
+            batch_embeddings = generate_biencoder_embeddings_withgrad(
+                mention_map, batch_splits_ids, bi_encoder, batch_size, device, text_key=text_key
+            )
+
+            batch_embeddings = batch_embeddings / torch.norm(
+                batch_embeddings, dim=1
+            ).reshape((-1, 1))
+
+            other_clusters_embs = generate_biencoder_embeddings_withgrad(
+                mention_map, other_clusters_mention_ids, bi_encoder, batch_size, device, text_key=text_key
+            )
+            other_clusters_embs = other_clusters_embs / torch.norm(
+                other_clusters_embs, dim=1
+            ).reshape((-1, 1))
+            target_embedding = batch_embeddings[0]
+            target_cluster_embedding = torch.mean(batch_embeddings, dim=0)
+
+            dot_other_clusters = torch.squeeze(
+                torch.matmul(other_clusters_embs, target_embedding)
+            )
+
             hard_negs = torch.topk(dot_other_clusters, k=10).values
+
             curr_loss = -torch.dot(
                 torch.squeeze(target_embedding), torch.squeeze(target_cluster_embedding)
             ) + torch.log(torch.sum(torch.exp(hard_negs)))
@@ -332,7 +496,7 @@ def train_biencoder(
         m_id
         for m_id, m in mention_map.items()
         if m["men_type"] == "evt" and m["split"] == "train"
-    ][:200]
+    ]
 
     train_clusters = defaultdict(list)
     for m_id in train_split_ids:
