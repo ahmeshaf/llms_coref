@@ -41,7 +41,7 @@ def evaluate(model, mention_dict, selected_keys, device, top_k=10, text_key="mar
     m_end_id = model.end_id
 
     # tokenize the dev set
-    tokenized_dev_dict = tokenize_bi(tokenizer, selected_keys, mention_dict, m_end_id)
+    tokenized_dev_dict = tokenize_bi(tokenizer, selected_keys, mention_dict, m_end_id, text_key=text_key)
     dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format(
         "torch"
     )  # list to torch tensor
@@ -259,7 +259,7 @@ def train_centroid(
         total_loss = 0.0
         # stacked Torch.FloatTensor()
         embeddings = generate_biencoder_embeddings(
-            mention_map, bi_encoder, train_selected_keys, 2, device
+            mention_map, bi_encoder, train_selected_keys, 2, device, text_key=text_key,
         )
 
         embeddings = embeddings / torch.norm(embeddings, dim=1).reshape((-1, 1))

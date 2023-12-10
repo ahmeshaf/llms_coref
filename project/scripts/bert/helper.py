@@ -90,7 +90,7 @@ def tokenize_bi(
     mention_ids,
     mention_map,
     m_end,
-    max_sentence_len=None,
+    max_sentence_len=256,
     text_key="marked_doc",
     label_key="gold_cluster",
     truncate=True,
@@ -709,7 +709,7 @@ def process_batch(batch, model, device):
 
 
 def generate_biencoder_embeddings(
-    mention_map, bi_encoder_model, split_ids, batch_size, device
+    mention_map, bi_encoder_model, split_ids, batch_size, device, text_key,
 ):
     """
     Generates embeddings using a bi-encoder model for the given split IDs.
@@ -739,7 +739,7 @@ def generate_biencoder_embeddings(
     m_end_id = bi_encoder_model.end_id
 
     # Tokenize to get input_ids, position_ids, and attention_masks
-    tokenized_split_dict = tokenize_bi(tokenizer, split_ids, mention_map, m_end_id)
+    tokenized_split_dict = tokenize_bi(tokenizer, split_ids, mention_map, m_end_id, text_key=text_key)
 
     # Convert the dict object into a HuggingFace dataset object with torch tensors
     tokenized_dataset = Dataset.from_dict(tokenized_split_dict).with_format("torch")
