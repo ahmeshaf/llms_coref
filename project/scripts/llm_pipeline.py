@@ -31,6 +31,7 @@ from .coref_prompt_collections import (
 from .helper import ensure_dir, ensure_path, evaluate
 from .special_prompt_collections import (
     adv_prompt,
+    adv_prompt_v2,
     amr_prompt,
     arg_prompt,
     davidson_prompt,
@@ -71,6 +72,10 @@ def prompt_and_parser_factory(
         return amr_prompt, JsonParser()
     elif prompt_type == "arg":
         return arg_prompt, JsonParser()
+    elif prompt_type == "adv":
+        return adv_prompt, JsonParser()
+    elif prompt_type == "adv_v2":
+        return adv_prompt_v2, JsonParser()
     else:
         raise ValueError(f"Invalid prompt type: {prompt_type}")
 
@@ -311,22 +316,25 @@ def llm_aug(
     for key, value in tqdm(flatten_doc_sent_map.items()):
         if value is None:
             continue
-
+        
+        format_prompt = chain.prompt.format_prompt(sentence=value['sentence'], mention_texts=','.join(value['mention_texts']))
         if key in raw_cache:
             predict = raw_cache[key]["predict"]
         else:
             with get_openai_callback() as cb:
-                predict = chain.run(event=value)
+                predict = chain.run(sentence=value['sentence'], mention_texts=', '.join(value['mention_texts']))
+                
                 predict_cost = {
                     "Total": cb.total_tokens,
                     "Prompt": cb.prompt_tokens,
                     "Completion": cb.completion_tokens,
                     "Cost": cb.total_cost,
                 }
-                raw_cache[key] = {"predict": predict, "predict_cost": predict_cost}
+                raw_cache[key] = {"predict": predict, "predict_cost": predict_cost, "format_prompt": format_prompt}
                 pickle.dump(raw_cache, open(cache_file, "wb"))
         try:
             predict_dict = parser.parse(predict)
+            predict_dict["format_prompt"] = format_prompt
 
         except Exception as e:
             print(e)
@@ -420,7 +428,7 @@ def llm_tagging(
                             "predict": predict,
                             "predict_cost": predict_cost,
                             "input": input_dict,
-                            "paraphrase_key": paraphrase_key,
+                            "paraphrase_key": curr_key,
                         }
                         pickle.dump(raw_cache, open(cache_file, "wb"))
                 try:
@@ -518,9 +526,10 @@ def run_llm_pipeline(
 @app.command()
 def run_llm_aug_pipeline(
     dataset_folder: str,
+    split: str,
     debug: bool = False,
     gpt_version: str = "gpt-4",
-    gpt_raw_cache_dir: Path = "/tmp/gpt_argu/",
+    gpt_raw_cache_dir: Path = "/tmp/gpt_aug/",
     save_folder: Path = "../../llm_argu_results",
     experiment_name: str = "adv",
 ):
@@ -539,16 +548,31 @@ def run_llm_aug_pipeline(
             new_key = (doc_key, sent_data["sent_id"])
             flattened_dict[new_key] = sent_data["sentence"]
 
+    prompt, parser = prompt_and_parser_factory(experiment_name)
+
+    #TODO: remove below line when done
+    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+    flattened_dict = defaultdict(dict)
+    # get the debug split
+    for key, value in mention_map.items():
+        if value["split"] == split and value['men_type'] == 'evt':
+            flattened_dict[(value["doc_id"], value["sentence_id"])]['sentence'] = value["sentence"]
+            if flattened_dict[(value["doc_id"], value["sentence_id"])].get('mention_texts') is None:
+                flattened_dict[(value["doc_id"], value["sentence_id"])]['mention_texts'] = [value['mention_text']]
+            else:
+                flattened_dict[(value["doc_id"], value["sentence_id"])]['mention_texts'].append(value['mention_text'])
+            
     # debug
     if debug:
         print("Total sentences: ", len(flattened_dict))
         first_5_items = list(flattened_dict.items())[:5]
         flattened_dict = dict(first_5_items)
 
+    # breakpoint()
     result_dict = llm_aug(
         flattened_dict,
-        adv_prompt,
-        JsonParser(),
+        prompt,
+        parser,
         gpt_version=gpt_version,
         save_folder=save_folder,
         run_name=experiment_name,
@@ -563,6 +587,7 @@ def run_llm_aug_pipeline(
 def run_llm_tagging_pipeline(
     aug_cache_file: Path,
     dataset_folder: str,
+    split: str,
     debug: bool = False,
     gpt_version: str = "gpt-4",
     gpt_raw_cache_dir: Path = "/tmp/gpt_tagging/",
@@ -589,7 +614,7 @@ def run_llm_tagging_pipeline(
 
     doc_id2m_ids = defaultdict(list)
     for m_id, mention in mention_map.items():
-        if mention["men_type"] == "evt":
+        if mention["men_type"] == "evt" and mention['split'] == split: #TODO: remove this line when done
             doc_id2m_ids[mention["doc_id"]].append(m_id)
 
     # debug
