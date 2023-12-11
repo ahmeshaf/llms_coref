@@ -44,23 +44,22 @@ class BiEncoder(nn.Module):
             self.tokenizer.add_tokens(["<m>", "</m>"], special_tokens=True)
             self.tokenizer.add_tokens(["<doc-s>", "</doc-s>"], special_tokens=True)
             self.tokenizer.add_tokens(["<g>"], special_tokens=True)
-            self.model = AutoModel.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name, load_in_8bit=True)
             self.model.resize_token_embeddings(len(self.tokenizer))
         else:
-            self.model = AutoModel.from_pretrained(model_name)
+            self.model = AutoModel.from_pretrained(model_name, load_in_8bit=True)
             self.model.eval()
 
         self.start_id = self.tokenizer.encode("<m>", add_special_tokens=False)[0]
         self.end_id = self.tokenizer.encode("</m>", add_special_tokens=False)[0]
 
         self.hidden_size = self.model.config.hidden_size
+        # torch.set_default_dtype(torch.float16)
+        # 2 for CLS and one arg vector
+        self.linear = nn.Linear(self.hidden_size, self.hidden_size)
+        self.linear.half()
 
-        self.linear = nn.Sequential(
-            nn.Linear(
-                self.hidden_size, self.hidden_size
-            ),  # 2 for CLS and one arg vector
-        )
-
+        self.linear.half()
         if linear_weights is None:
             self.linear.apply(init_weights)
         else:

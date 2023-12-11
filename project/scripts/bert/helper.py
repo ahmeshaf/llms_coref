@@ -5,6 +5,7 @@ This module contains the helper functions for the BiEncoder, mostly for tokeniza
 import random
 
 import faiss
+import numpy as np
 import torch
 from datasets import Dataset
 from torch.utils.data import Dataset as torch_Dataset
@@ -189,7 +190,7 @@ def tokenize_with_postive_condiates(
     mention_ids,
     mention_map,
     m_end,
-    max_sentence_len=None,
+    max_sentence_len=256,
     text_key="marked_doc",
     label_key="gold_cluster",
     truncate=True,
@@ -563,12 +564,12 @@ def generate_embeddings(
     return batch
 
 
-def create_faiss_db(dataset, model, device):
+def create_faiss_db(dataset, model, device, batch_size=32):
     model = model.to(device)
     processed_dataset = dataset.map(
         lambda batch: generate_embeddings(batch, model, device),
         batched=True,
-        batch_size=256,  # ce will take up lots of memory
+        batch_size=batch_size,  # ce will take up lots of memory
     )
 
     embeddings = processed_dataset["embeddings"]
@@ -595,7 +596,7 @@ class VectorDatabase:
         self.faiss_index = faiss_index
         self.dataset = dataset
 
-    def get_hard_negative(self, anchor_embeddings, true_label):
+    def get_hard_negative(self, anchor_embeddings, true_label, tn_pairs=None):
         # Convert anchor embeddings from tensor to numpy for FAISS
         anchor_embeddings_np = anchor_embeddings.detach().cpu().numpy()
         # Search the index for the 50 nearest neighbors of the anchor embeddings
@@ -634,7 +635,7 @@ class VectorDatabase:
             "arg_attention_mask": arg_attention_mask_list,
         }
 
-    def get_nearest_neighbors(self, anchor_embeddings, k=10):
+    def get_nearest_neighbors(self, anchor_embeddings, k=10, m_ids=None, mention_map=None):
         """
         Retrieve the k nearest neighbors for each anchor embedding.
 
@@ -643,9 +644,26 @@ class VectorDatabase:
         :return: A list of k nearest neighbors for each anchor.
         """
         # Convert anchor embeddings from tensor to numpy for FAISS
-        anchor_embeddings_np = anchor_embeddings.detach().cpu().numpy()
+        anchor_embeddings_np = (
+            anchor_embeddings.detach().cpu().numpy().astype(np.float32)
+        )
         # Search the index for the k nearest neighbors of the anchor embeddings
-        _, nearest_neighbors_indices = self.faiss_index.search(anchor_embeddings_np, k)
+        _, nearest_neighbors_indices = self.faiss_index.search(
+            anchor_embeddings_np, 100
+        )
+
+        index = 0
+
+        if m_ids is not None:
+            filtered_nns = []
+            for m_id, nn_indices in zip(m_ids, nearest_neighbors_indices):
+                m_topic = mention_map[m_id]["topic"]
+                curr_filtered_nns = [
+                    i for i in nn_indices
+                    if m_topic == mention_map[self.dataset[int(i)]["unit_ids"]]["topic"]
+                ]
+                filtered_nns.append(curr_filtered_nns)
+            nearest_neighbors_indices = filtered_nns
 
         nearest_neighbors = []
         for neighbors in nearest_neighbors_indices:
@@ -709,7 +727,12 @@ def process_batch(batch, model, device):
 
 
 def generate_biencoder_embeddings(
-    mention_map, bi_encoder_model, split_ids, batch_size, device, text_key,
+    mention_map,
+    bi_encoder_model,
+    split_ids,
+    batch_size,
+    device,
+    text_key,
 ):
     """
     Generates embeddings using a bi-encoder model for the given split IDs.
@@ -739,7 +762,9 @@ def generate_biencoder_embeddings(
     m_end_id = bi_encoder_model.end_id
 
     # Tokenize to get input_ids, position_ids, and attention_masks
-    tokenized_split_dict = tokenize_bi(tokenizer, split_ids, mention_map, m_end_id, text_key=text_key)
+    tokenized_split_dict = tokenize_bi(
+        tokenizer, split_ids, mention_map, m_end_id, text_key=text_key
+    )
 
     # Convert the dict object into a HuggingFace dataset object with torch tensors
     tokenized_dataset = Dataset.from_dict(tokenized_split_dict).with_format("torch")
@@ -772,7 +797,9 @@ def generate_biencoder_embeddings_withgrad(
     m_end_id = bi_encoder_model.end_id
 
     # Tokenize to get input_ids, position_ids, and attention_masks
-    batch_dict = tokenize_bi(tokenizer, batch_splits_ids, mention_map, m_end_id, text_key=text_key)
+    batch_dict = tokenize_bi(
+        tokenizer, batch_splits_ids, mention_map, m_end_id, text_key=text_key
+    )
 
     batch = get_arg_attention_mask_wrapper(batch_dict, m_start_id, m_end_id)
 
