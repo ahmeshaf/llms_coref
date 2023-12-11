@@ -1,3 +1,4 @@
+import bitsandbytes as bnb
 import os.path
 import pickle
 from collections import defaultdict
@@ -34,7 +35,13 @@ app = typer.Typer()
 
 @torch.no_grad
 def evaluate(
-    model, mention_dict, selected_keys, device, top_k=10, text_key="marked_doc"
+    model,
+    mention_dict,
+    selected_keys,
+    device,
+    top_k=10,
+    text_key="marked_doc",
+    batch_size=32,
 ):
     # check the model is on the specified device
     model.to(device)
@@ -54,7 +61,7 @@ def evaluate(
         batched=True,
         batch_size=1,
     )  # contains embs
-    dev_dataloader = DataLoader(dev_dataset, batch_size=1, shuffle=False)
+    dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False)
 
     faiss_db = VectorDatabase()
     dev_index, _ = create_faiss_db(dev_dataset, model, device=device)
@@ -68,23 +75,35 @@ def evaluate(
     with torch.no_grad():
         for batch in tqdm(dev_dataloader):
             # skip the batch if the mention is a singleton
-            mention_id = batch["unit_ids"][0]
-            if mention_dict[mention_id]["tag_descriptor"] == "singleton":
-                singleton_count += 1
-                continue
+            # mention_id = batch["unit_ids"][0]
+            # if mention_dict[mention_id]["tag_descriptor"] == "singleton":
+            #     singleton_count += 1
+            # continue
 
             embeddings = process_batch(batch, model, device)
-            # Retrieve the nearest neighbors
-            neighbors_list = faiss_db.get_nearest_neighbors(embeddings, top_k + 1)
-            # Remove the first neighbor, which is the mention itself
-            neighbors_list = neighbors_list[0][1:]
-            # Check if the correct mention is in the neighbors
-            gold_label = batch["label"][0]
-            neighbor_label_list = [neighbor["label"] for neighbor in neighbors_list]
-            correct_mention_found = gold_label in neighbor_label_list
-            if correct_mention_found:
-                true_positives += 1
-            total += 1
+            # for embedding in embeddings:
+            #     # Retrieve the nearest neighbors
+            #     embedding = embedding.reshape((1, -1))
+
+            neighbors_list = faiss_db.get_nearest_neighbors(
+                embeddings,
+                top_k + 1,
+                m_ids=[m_id for m_id in batch["unit_ids"]],
+                mention_map=mention_dict,
+            )
+            for i, neighbor_ in enumerate(neighbors_list):
+                if mention_dict[batch["unit_ids"][i]]["tag_descriptor"] == "singleton":
+                    continue
+                # Remove the first neighbor, which is the mention itself
+                neighbors_curr = neighbor_[1:]
+                # Check if the correct mention is in the neighbors
+
+                gold_label = batch["label"][i]
+                neighbor_label_list = [nb["label"] for nb in neighbors_curr]
+                correct_mention_found = gold_label in neighbor_label_list
+                if correct_mention_found:
+                    true_positives += 1
+                total += 1
 
     print("true_positives:", true_positives)
     print("total:", total)
@@ -181,8 +200,10 @@ def train_centroid_gpt(
     bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
     bi_encoder.to(device)
     bi_encoder.train()
+    import bitsandbytes as bnb
 
-    optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
+    optimizer = bnb.optim.AdamW(bi_encoder.parameters(), lr=0.00001)
+    # optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
     split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
 
     for epoch in range(epochs):
@@ -231,6 +252,64 @@ def train_centroid_gpt(
     return bi_encoder
 
 
+def generate_training_samples(
+    train_selected_keys,
+    mention_map,
+    embeddings,
+    cluster_embeddings,
+    train_clusters,
+    split_id2index,
+    top_k=10,
+    top_k_c=10,
+):
+    all_samples = []
+    for i, m_id in enumerate(train_selected_keys):
+        m_index = split_id2index[m_id]
+        target_cluster_id = mention_map[m_id]["gold_cluster"]
+        target_embedding = embeddings[m_index, :].reshape((-1, 1))
+        other_clusters = [
+            (cl_id, m_ids)
+            for cl_id, m_ids in train_clusters.items()
+            if cl_id != target_cluster_id
+        ]
+
+        other_clusters_embs = torch.vstack(
+            [
+                cl_emb
+                for cl, cl_emb in cluster_embeddings.items()
+                if cl != target_cluster_id
+            ]
+        )
+        dot_other_clusters = torch.squeeze(
+            torch.matmul(other_clusters_embs, target_embedding)
+        )
+        indices = torch.topk(
+            dot_other_clusters, k=min(100, len(dot_other_clusters))
+        ).indices
+        indices = [
+            i
+            for i in indices
+            if mention_map[other_clusters[i][1][0]]["topic"]
+            == mention_map[m_id]["topic"]
+        ][:top_k]
+
+        for cc in other_clusters:
+            random.shuffle(cc[1])
+
+        other_clusters_mention_ids = [other_clusters[i][1][:top_k_c] for i in indices]
+
+        random.shuffle(train_clusters[target_cluster_id])
+        pos_m_ids = [
+            c_mid
+            for c_mid in train_clusters[target_cluster_id][:top_k_c]
+            if c_mid != m_id
+        ]
+
+        t_sample = (m_id, pos_m_ids, other_clusters_mention_ids)
+        all_samples.append(t_sample)
+    return all_samples
+
+
 def train_centroid(
     mention_map,
     train_selected_keys,
@@ -251,28 +330,34 @@ def train_centroid(
         bert_model = model_name + "/bert"
         linear_file = model_name + "/linear.pt"
         linear_weights = torch.load(linear_file)
-        bi_encoder = BiEncoder(model_name=bert_model, linear_weights=linear_weights, long=long, is_training=True)
+        bi_encoder = BiEncoder(
+            model_name=bert_model,
+            linear_weights=linear_weights,
+            long=long,
+            is_training=True,
+        )
     else:
         bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
     bi_encoder.to(device)
     bi_encoder.train()
 
-    optimizer = torch.optim.AdamW(
+    optimizer = bnb.optim.AdamW(
         [
             {"params": bi_encoder.model.parameters(), "lr": 0.000001},
             {"params": bi_encoder.linear.parameters(), "lr": 0.0001},
         ]
     )
     split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
+    # evaluate(bi_encoder, mention_map, dev_selected_keys, device, text_key=text_key)
     for i in range(epochs):
-        evaluate(bi_encoder, mention_map, dev_selected_keys, device, text_key=text_key)
+        #
         total_loss = 0.0
         # stacked Torch.FloatTensor()
         embeddings = generate_biencoder_embeddings(
             mention_map,
             bi_encoder,
             train_selected_keys,
-            2,
+            32,
             device,
             text_key=text_key,
         )
@@ -285,90 +370,86 @@ def train_centroid(
             )
             for clus_id, clus in train_clusters.items()
         }
-        loss = torch.squeeze(torch.zeros(1, 1, requires_grad=True).to(device))
-        for j, m_id in tqdm(
-            enumerate(train_selected_keys),
+
+        training_samples = generate_training_samples(
+            train_selected_keys,
+            mention_map,
+            embeddings,
+            cluster_embeddings,
+            train_clusters,
+            split_id2index,
+            top_k=10,
+            top_k_c=20,
+        )
+
+        for (
+            j,
+            (m_id, pos_ids, other_men_ids),
+        ) in tqdm(
+            enumerate(training_samples),
             desc=f"epoch {i}: Training BiEncoder",
-            total=len(train_selected_keys),
+            total=len(training_samples),
         ):
             optimizer.zero_grad()
-            target_embedding = embeddings[split_id2index[m_id], :].reshape((-1, 1))
-            target_cluster_id = mention_map[m_id]["gold_cluster"]
-            # target_cluster_embedding = cluster_embeddings[target_cluster_id]
-            other_clusters = [
-                (cl_id, m_ids)
-                for cl_id, m_ids in train_clusters.items()
-                if cl_id != target_cluster_id
-            ]
+            if len(other_men_ids) == 0:
+                other_men_ids.append([m_id])
+            if len(pos_ids) == 0:
+                pos_ids.append(m_id)
+            all_ids = [m_id] + pos_ids + [c for cs in other_men_ids for c in cs]
+            m_indices = [0]
+            pos_indices = [len(m_indices) + i for i in range(len(pos_ids))]
 
-            other_clusters_embs = torch.vstack(
-                [
-                    cl_emb
-                    for cl, cl_emb in cluster_embeddings.items()
-                    if cl != target_cluster_id
-                ]
-            )
-            dot_other_clusters = torch.squeeze(
-                torch.matmul(other_clusters_embs, target_embedding)
-            )
-            indices = torch.topk(dot_other_clusters, k=10).indices
-            for cc in other_clusters:
-                random.shuffle(cc[1])
+            neg_indices_group = []
+            index = len(m_indices + pos_indices)
+            for neg_is in other_men_ids:
+                curr_negs = []
+                for _ in neg_is:
+                    curr_negs.append(index)
+                    index += 1
+                neg_indices_group.append(curr_negs)
 
-            other_clusters_mention_ids = [other_clusters[i][1][:20] for i in indices]
-
-            random.shuffle(train_clusters[target_cluster_id])
-
-            batch_splits_ids = [m_id] + [
-                mid2 for mid2 in train_clusters[target_cluster_id][:20] if mid2 != m_id
-            ]
-
-            batch_embeddings = generate_biencoder_embeddings_withgrad(
+            all_embeddings = generate_biencoder_embeddings_withgrad(
                 mention_map,
-                batch_splits_ids,
+                all_ids,
                 bi_encoder,
                 batch_size,
                 device,
                 text_key=text_key,
             )
+            all_embeddings = all_embeddings / torch.norm(all_embeddings, dim=1).reshape((-1, 1))
 
-            batch_embeddings = batch_embeddings / torch.norm(
-                batch_embeddings, dim=1
-            ).reshape((-1, 1))
-
+            target_embedding = all_embeddings[m_indices, :]
+            pos_men_embeddings = all_embeddings[pos_indices, :]
+            # neg_embeddings = all_embeddings[neg_indices]
             other_clusters_embs = torch.vstack(
                 [
-                    torch.mean(
-                        generate_biencoder_embeddings_withgrad(
-                            mention_map,
-                            clus,
-                            bi_encoder,
-                            batch_size,
-                            device,
-                            text_key=text_key,
-                        ),
-                        dim=0,
-                    )
-                    for clus in other_clusters_mention_ids
+                    torch.mean(all_embeddings[neg_g_i, :], dim=0)
+                    for neg_g_i in neg_indices_group
                 ]
             )
-            other_clusters_embs = other_clusters_embs / torch.norm(
-                other_clusters_embs, dim=1
-            ).reshape((-1, 1))
-            target_embedding = batch_embeddings[0]
-            target_cluster_embedding = torch.mean(batch_embeddings, dim=0)
+
+            if len(pos_ids) == 1:
+                pos_men_embeddings = 0 * pos_men_embeddings
+
+            target_cluster_embedding = torch.mean(pos_men_embeddings, dim=0)
 
             dot_other_clusters = torch.squeeze(
-                torch.matmul(other_clusters_embs, target_embedding)
-            )
+                torch.matmul(other_clusters_embs, target_embedding.T)
+            ).reshape((-1,))
 
-            hard_negs = torch.topk(dot_other_clusters, k=10).values
+            hard_negs = torch.topk(dot_other_clusters, k=min(5, len(dot_other_clusters))).values
 
+            # curr_loss = -torch.dot(
+            #     torch.squeeze(target_embedding), torch.squeeze(target_cluster_embedding)
+            # ) + torch.log(torch.sum(torch.exp(hard_negs)))
             curr_loss = -torch.dot(
                 torch.squeeze(target_embedding), torch.squeeze(target_cluster_embedding)
-            ) + torch.log(torch.sum(torch.exp(hard_negs)))
+            ) + torch.mean(hard_negs)
+
             curr_loss.backward()
             optimizer.step()
+            if curr_loss.item() == torch.nan:
+                raise Exception("NaN in calculation")
             total_loss += curr_loss.item()
 
             # if i % batch_size == batch_size - 1 or m_id == train_selected_keys[-1]:
@@ -378,7 +459,9 @@ def train_centroid(
             #     total_loss += loss.item()
             #     loss = torch.squeeze(torch.zeros(1, 1, requires_grad=True).to(device))
         bi_encoder.save_model(f"{save_path}/checkpoint-{i}/")
+        print(f"saved model at {save_path}/checkpoint-{i}/")
         print(total_loss / len(train_selected_keys))
+        evaluate(bi_encoder, mention_map, dev_selected_keys, device, text_key=text_key)
     return bi_encoder
 
 
@@ -393,6 +476,7 @@ def train(
     batch_size=2,
     epochs=1,
     save_path="../models/bi_encoder/",
+    max_sentence_len: int = 256,
 ):
     # Initialize the model and tokenizer
     bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
@@ -404,7 +488,12 @@ def train(
     # Tokenize anchors and positive candidates
     add_positive_candidates(mention_dict)
     tokenized_anchor_dict, tokenized_positive_dict = tokenize_with_postive_condiates(
-        tokenizer, train_selected_keys, mention_dict, m_end_id, text_key=text_key
+        tokenizer,
+        train_selected_keys,
+        mention_dict,
+        m_end_id,
+        text_key=text_key,
+        max_sentence_len=max_sentence_len,
     )
 
     # Prepare datasets
@@ -452,11 +541,12 @@ def train(
     optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
 
     # start the evaluation
-    evaluate(bi_encoder, mention_dict, dev_selected_keys, device)
+    # evaluate(bi_encoder, mention_dict, dev_selected_keys, device)
 
     # Training loop
     bi_encoder.train()
     for epoch in range(epochs):
+        epoch_loss = 0.0
         # Initialize progress bar
         pbar = tqdm(total=len(train_dataloader), desc=f"Epoch {epoch + 1}/{epochs}")
 
@@ -479,6 +569,7 @@ def train(
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            epoch_loss += loss.item()
 
             # Update progress bar
             pbar.update()
@@ -488,8 +579,7 @@ def train(
                     "Loss": f"{loss.item():.4f}",
                 }
             )
-            break
-
+        print("Epoch Loss:", epoch_loss / len(train_dataloader))
         pbar.close()
         # Save the model
         bi_encoder.save_model(f"{save_path}/checkpoint-{epoch}/")

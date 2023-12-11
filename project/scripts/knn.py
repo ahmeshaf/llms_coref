@@ -102,6 +102,7 @@ def get_knn_candidate_map_ce(
     return result_list
 
 
+@torch.no_grad
 def get_knn_candidate_map(
     evt_mention_map,
     units,
