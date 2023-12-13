@@ -635,7 +635,9 @@ class VectorDatabase:
             "arg_attention_mask": arg_attention_mask_list,
         }
 
-    def get_nearest_neighbors(self, anchor_embeddings, k=10, m_ids=None, mention_map=None):
+    def get_nearest_neighbors(
+        self, anchor_embeddings, k=10, m_ids=None, mention_map=None
+    ):
         """
         Retrieve the k nearest neighbors for each anchor embedding.
 
@@ -648,21 +650,31 @@ class VectorDatabase:
             anchor_embeddings.detach().cpu().numpy().astype(np.float32)
         )
         # Search the index for the k nearest neighbors of the anchor embeddings
-        _, nearest_neighbors_indices = self.faiss_index.search(
+        nn_embeddings, nearest_neighbors_indices = self.faiss_index.search(
             anchor_embeddings_np, 100
         )
 
+        # cosine_sims = torch.cosine_similarity(
+        #     torch.FloatTensor(anchor_embeddings_np).reshape(
+        #         (len(anchor_embeddings), -1),
+        #     ),
+        #     torch.FloatTensor(nn_embeddings).T,
+        # )
+        # print(cosine_sims)
+        # sigmoid = torch.squeeze(torch.sigmoid(cosine_sims))
         index = 0
 
         if m_ids is not None:
             filtered_nns = []
             for m_id, nn_indices in zip(m_ids, nearest_neighbors_indices):
-                m_topic = mention_map[m_id]["topic"]
-                curr_filtered_nns = [
-                    i for i in nn_indices
-                    if m_topic == mention_map[self.dataset[int(i)]["unit_ids"]]["topic"]
-                ]
-                filtered_nns.append(curr_filtered_nns)
+                if True:
+                    m_topic = mention_map[m_id]["topic"]
+                    curr_filtered_nns = [
+                        i
+                        for i in nn_indices
+                        if m_topic == mention_map[self.dataset[int(i)]["unit_ids"]]["topic"]
+                    ]
+                    filtered_nns.append(curr_filtered_nns)
             nearest_neighbors_indices = filtered_nns
 
         nearest_neighbors = []
@@ -696,14 +708,14 @@ def process_batch(batch, model, device):
         input_ids = batch["input_ids"].to(device)
         attention_mask = batch["attention_mask"].to(device)
         position_ids = batch["position_ids"].to(device)
-        global_attention_mask = batch["global_attention_mask"].to(device)
+        # global_attention_mask = batch["global_attention_mask"].to(device)
         arg_attention_mask = batch["arg_attention_mask"].to(device)
 
         embeddings = model(
             input_ids,
             attention_mask=attention_mask,
             position_ids=position_ids,
-            global_attention_mask=global_attention_mask,
+            # global_attention_mask=global_attention_mask,
             arg=arg_attention_mask,
         )
     elif isinstance(model, CrossEncoder):
@@ -807,3 +819,88 @@ def generate_biencoder_embeddings_withgrad(
     embeddings = process_batch(batch, bi_encoder_model, device)
     embeddings = embeddings.reshape((len(batch_splits_ids), -1))
     return embeddings
+
+
+def tokenize_bi_pairs(
+    tokenizer,
+    mention_pairs,
+    mention_map,
+    m_start,
+    m_end,
+    max_sentence_len=None,
+    text_key="bert_doc",
+    truncate=True,
+    label_key="gold_cluster",
+):
+    """
+
+    Parameters
+    ----------
+    tokenizer
+    mention_pairs
+    mention_map
+    m_end
+    max_sentence_len
+    text_key
+    truncate
+    label_key
+
+    Returns
+    -------
+    datas
+    Dataset: with "unitids", "unit_ids", "labels"
+    """
+    if max_sentence_len is None:
+        max_sentence_len = tokenizer.model_max_length
+
+    mention1_ids, mention2_ids = zip(*mention_pairs)
+    labels = [
+        1.0 if mention_map[m1][label_key] == mention_map[m2][label_key] else 0.
+        for m1, m2 in mention_pairs
+    ]
+
+    # make dataset of mention1_ids
+    # make dataset of mention2_ids
+    # Combine datasets
+    # add labels
+
+    tokenized1_dict = tokenize_bi(
+        tokenizer,
+        mention1_ids,
+        mention_map,
+        m_end,
+        max_sentence_len,
+        text_key,
+        label_key=label_key,
+        truncate=truncate,
+    )
+    tokenized2_dict = tokenize_bi(
+        tokenizer,
+        mention2_ids,
+        mention_map,
+        m_end,
+        max_sentence_len,
+        text_key,
+        label_key=label_key,
+        truncate=truncate,
+    )
+
+    tokenized1_dict["labels"] = labels
+    tokenized1_dict = get_arg_attention_mask_wrapper(tokenized1_dict, m_start, m_end)
+    tokenized2_dict = get_arg_attention_mask_wrapper(tokenized2_dict, m_start, m_end)
+    m1_dataset = Dataset.from_dict(tokenized1_dict).with_format("torch")
+    m2_dataset = Dataset.from_dict(tokenized2_dict).with_format("torch")
+    pair_dataset = CombinedDataset(m1_dataset, m2_dataset)
+
+    return pair_dataset
+
+
+# def get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id):
+#     input_ids = batch["input_ids"]
+#     # get the attention mask for the arguments
+#     global_attention_mask, arg_attention_mask = get_arg_attention_mask(
+#         input_ids, m_start_id, m_end_id
+#     )
+#     batch["global_attention_mask"] = global_attention_mask
+#     batch["arg_attention_mask"] = arg_attention_mask
+#     return batch
