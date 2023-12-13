@@ -376,9 +376,9 @@ def save_lh_pairs(
     m_pairs, _ = get_lh_pairs(mention_map, split, heu=heu, lh_threshold=lh_threshold)
 
     # use only the positive predictions
-    tp_fp = m_pairs[0] + m_pairs[1]
+    tp_fp_fn = m_pairs[0] + m_pairs[1]
     mention_pairs = set()
-    for m1, m2 in tp_fp:
+    for m1, m2 in tp_fp_fn:
         p = tuple(sorted((m1, m2)))
         mention_pairs.add(p)
     print(len(mention_pairs))

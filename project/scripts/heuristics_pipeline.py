@@ -18,6 +18,15 @@ def run_mp_pipeline(mention_map_file, split, mention_pairs_file, oracle: bool = 
     }
     split_mention_ids = list(evt_mention_map.keys())
     mention_pairs = pickle.load(open(mention_pairs_file, "rb"))
+
+    mention_pairs = [
+        (m1, m2)
+        for m1, m2 in mention_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
+
     similarities = np.ones(len(mention_pairs))
     if oracle is True:
         similarities = np.array(
@@ -26,13 +35,7 @@ def run_mp_pipeline(mention_map_file, split, mention_pairs_file, oracle: bool = 
                 for m1, m2 in mention_pairs
             ]
         )
-    scores = evaluate(
-        mention_map,
-        split_mention_ids,
-        mention_pairs,
-        similarities,
-        tmp_folder="/tmp/",
-    )
+    scores = evaluate(mention_map, split_mention_ids, mention_pairs, similarities, tmp_folder="/tmp/")
     print(scores)
 
 

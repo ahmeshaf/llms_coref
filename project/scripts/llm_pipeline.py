@@ -498,9 +498,7 @@ def run_llm_pipeline(
     # Evaluate the result
     result_array = np.array(result_list)
 
-    scores = evaluate(
-        mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array
-    )
+    scores = evaluate(mention_map, split_mention_ids, mention_pairs, similarity_matrix=result_array)
 
     # Save the results
     pickle.dump(

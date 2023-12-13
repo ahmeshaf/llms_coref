@@ -53,7 +53,7 @@ commands:
         python -m scripts.nn_method.train
         ${vars.ecb-mention-map}
         --model-name /home/rehan/workspace/models/ce_models/ecb_small/bert
-        --text-key neighbors_2
+        --text-key neighbors_3
         --learning-rate 0.00001
         --batch-size 4
         --epochs 20
@@ -65,27 +65,27 @@ commands:
       - >-
         python -m scripts.knn save-knn-mention-pairs
         ./corpus/ecb/mention_map.pkl train 
-        ./outputs/models/biencoder/checkpoint-18/ 
-        ./outputs/knn/train_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn/train.pairs
-        --ce-text-key neighbors_2 
+         /media/rehan/big_disk/models/knn_centroid/checkpoint-5/
+        ./outputs/knn_cen/train_neighbors_3.pkl 
+        ./outputs/mention_pairs/knn_cen/train.pairs
+        --ce-text-key neighbors_3 
         --top-k 5 --force
 
       - >-
         python -m scripts.knn save-knn-mention-pairs
         ./corpus/ecb/mention_map.pkl dev 
-        ./outputs/models/biencoder/checkpoint-18/ 
-        ./outputs/knn/dev_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn/dev.pairs
-        --ce-text-key neighbors_2 
+         /media/rehan/big_disk/models/knn_centroid/checkpoint-5/
+        ./outputs/knn_cen/dev_neighbors_2.pkl 
+        ./outputs/mention_pairs/knn_cen/dev.pairs
+        --ce-text-key neighbors_3 
         --top-k 5
 
       - >-
         python -m scripts.knn save-knn-mention-pairs
         ./corpus/ecb/mention_map.pkl debug_split
-        ./outputs/models/biencoder/checkpoint-18/
-        ./outputs/knn/debug_split_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn/debug_split.pairs 
+         /media/rehan/big_disk/models/knn_centroid/checkpoint-5/
+        ./outputs/knn_cen/debug_split_neighbors_2.pkl 
+        ./outputs/mention_pairs/knn_cen/debug_split.pairs 
         --ce-text-key neighbors_2 
         --top-k 5
 

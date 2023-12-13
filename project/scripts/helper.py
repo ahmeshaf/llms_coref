@@ -119,8 +119,7 @@ def generate_key_file(coref_map_tuples, name, out_dir, out_file_path):
         of.write("#end document\n")
 
 
-def cluster(mentions, mention_pairs, similarities, threshold=0):
-    n = len(mentions)
+def cluster(mentions, mention_pairs, similarities, threshold=0.0):
     m_id2ind = {m: i for i, m in enumerate(mentions)}
 
     mention_ind_pairs = [(m_id2ind[mp[0]], m_id2ind[mp[1]]) for mp in mention_pairs]
@@ -132,8 +131,53 @@ def cluster(mentions, mention_pairs, similarities, threshold=0):
     similarity_matrix[rows, cols] = similarities
 
     clusters, labels = cluster_cc(similarity_matrix, threshold=threshold)
-    m_id2cluster = {m: i for m, i in zip(mentions, labels)}
+    m_id2cluster = [(m, i) for m, i in zip(mentions, labels)]
     return m_id2cluster
+
+
+def cluster_greedy(mentions, mention_pairs, similarities, threshold=0.5):
+    m_id2ind = {m: i for i, m in enumerate(mentions)}
+
+    mention_ind_pairs = [(m_id2ind[mp[0]], m_id2ind[mp[1]]) for mp in mention_pairs]
+    rows, cols = zip(*mention_ind_pairs)
+
+    mention_pairs_sorted = sorted(
+        [(m1, m2, score) for (m1, m2), score in zip(mention_pairs, similarities)],
+        key=lambda x: x[-1],
+        reverse=True,
+    )
+
+    # create similarity matrix from the similarities
+    n = len(mentions)
+    similarity_matrix = np.identity(n)
+    similarity_matrix[rows, cols] = similarities
+    similarity_matrix[cols, rows] = similarities
+
+    base_clusters = {i: [i] for i in range(len(mentions))}
+
+    for m1, m2, score in mention_pairs_sorted:
+        m1_ind = m_id2ind[m1]
+        m2_ind = m_id2ind[m2]
+
+        if m1_ind in base_clusters and m2_ind in base_clusters:
+            c_1 = base_clusters[m1_ind]
+            c_2 = base_clusters[m2_ind]
+            # if score > threshold:
+            # score = np.mean([similarity_matrix[i, j] for i in c_1 for j in c_2])
+            while not isinstance(c_2, list):
+                c_2 = base_clusters[c_2]
+            while not isinstance(c_1, list):
+                c_1 = base_clusters[c_1]
+            if score > threshold:
+                for m_ in c_2:
+                    if m_ not in c_1:
+                        c_1.append(m_)
+                    base_clusters[m2_ind] = m1_ind
+    clusters = [clus for clus in base_clusters.values() if isinstance(clus, list)]
+    # clusters, labels = cluster_cc(similarity_matrix, threshold=threshold)
+    m_id2cluster = {m: i for i, ms in enumerate(clusters) for m in ms}
+    return [(m, m_id2cluster[m_id2ind[m]]) for m in list(mentions)]
+    # return m_id2cluster
 
 
 def accuracy(predicted_labels, true_labels):
@@ -147,14 +191,14 @@ def precision(predicted_labels, true_labels):
     """
     Precision is True Positives / All Positives Predictions
     """
-    return sum(torch.logical_and(predicted_labels, true_labels)) / sum(predicted_labels)
+    return sum(np.logical_and(predicted_labels, true_labels)) / sum(predicted_labels)
 
 
 def recall(predicted_labels, true_labels):
     """
     Recall is True Positives / All Positive Labels
     """
-    return sum(torch.logical_and(predicted_labels, true_labels)) / sum(true_labels)
+    return sum(np.logical_and(predicted_labels, true_labels)) / sum(true_labels)
 
 
 def f1_score(predicted_labels, true_labels):
@@ -172,7 +216,8 @@ def ensure_path(file: Path):
         file = Path(file)
     if not file.parent.exists():
         file.parent.mkdir(parents=True)
-        
+
+
 def ensure_dir(dir_path: Path):
     # Ensure the file is Path object
     if not isinstance(dir_path, Path):
@@ -191,12 +236,14 @@ def evaluate(
     prediction_pairs: List[Tuple[str, str]],
     similarity_matrix: np.ndarray,
     tmp_folder: str = "/tmp/",
+    threshold: float = 0.5,
 ) -> Dict[str, Tuple[float, float, float]]:
     """
     Evaluate the prediction results using various coreference resolution metrics.
 
     Parameters
     ----------
+    threshold: float
     mention_map : dict
         A mapping of mentions to their attributes. Each attribute should have a 'gold_cluster' key.
     split_mention_ids: List[str]
@@ -218,6 +265,7 @@ def evaluate(
         - 'LEA': (recall, precision, f-score)
     """
     # Create the key file with gold clusters from mention map
+    split_mention_ids = sorted(list(split_mention_ids))
     curr_gold_cluster_map = [
         (men, mention_map[men]["gold_cluster"]) for men in split_mention_ids
     ]
@@ -225,12 +273,12 @@ def evaluate(
     generate_key_file(curr_gold_cluster_map, "evt", tmp_folder, gold_key_file)
 
     # Run clustering using prediction_pairs and similarity_matrix
-    mid2cluster = cluster(split_mention_ids, prediction_pairs, similarity_matrix)
+    mid2cluster = cluster(split_mention_ids, prediction_pairs, similarity_matrix, threshold=threshold)
+    # mid2cluster = cluster_greedy(split_mention_ids, prediction_pairs, similarity_matrix)
 
     # Create a predictions key file
     system_key_file = tmp_folder + "/predicted_clusters.keyfile"
-    generate_key_file(mid2cluster.items(), "evt", tmp_folder, system_key_file)
-
+    generate_key_file(mid2cluster, "evt", tmp_folder, system_key_file)
     # Evaluation on gold and prediction key files.
     doc = read(gold_key_file, system_key_file)
 
@@ -248,3 +296,11 @@ def evaluate(
     }
 
     return results
+
+
+def get_split_ids(mention_map, split):
+    return [
+        m_id
+        for m_id, men in mention_map.items()
+        if men["men_type"] == "evt" and men["split"] == split
+    ]
