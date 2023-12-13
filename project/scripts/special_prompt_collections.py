@@ -103,12 +103,38 @@ Generate 3 samples ordered by the esoteric nature in ascending order in JSON For
    "Most Esoteric" :  "Most Esoteric paraphrasing"
 }}
 
-Sentence: {event}
+Sentence: {sentence}
 """
 adv_prompt = PromptTemplate(
     template=adv_template,
-    input_variables=['event'],
+    input_variables=['sentence'],
 )
+
+adv_template_v2="""
+You are an expert Paraphraser.
+
+Paraphrase this sentence from a news article by using figurative language to describe the events in the Sentence:
+
+I will provide the Sentence and the Event Triggers with it. 
+
+First, make sure you change the event triggers in the sentences. Then identify the Named Entities in the sentences. Finally, use this information for generation.
+
+Generate 4 samples ordered by the esoteric nature in ascending order in JSON Format as follows:
+{{
+   "Simple Language": "Paraphrasing using simplification of words"
+   "Less Esoteric" :  "Least Esoteric paraphrasing",
+   "Moderately Esoteric" :  "Moderately Esoteric paraphrasing",
+   "Most Esoteric" :  "Most Esoteric paraphrasing"
+}}
+
+Event Triggers: {mention_texts}
+Sentence: {sentence}
+"""
+adv_prompt_v2 = PromptTemplate(
+    template=adv_template_v2,
+    input_variables=['mention_texts', 'sentence'],
+)
+
 
 # Tagging
 tag_template="""
