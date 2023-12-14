@@ -37,6 +37,7 @@ from .special_prompt_collections import (
     davidson_prompt,
     quine_prompt,
     tag_prompt,
+    summarization_prompt,
 )
 
 app = typer.Typer()
@@ -76,6 +77,8 @@ def prompt_and_parser_factory(
         return adv_prompt, JsonParser()
     elif prompt_type == "adv_v2":
         return adv_prompt_v2, JsonParser()
+    elif prompt_type == "sum":
+        return summarization_prompt, JsonParser()
     else:
         raise ValueError(f"Invalid prompt type: {prompt_type}")
 
@@ -452,6 +455,82 @@ def llm_tagging(
     return result_dict
 
 
+def llm_sum(
+    mention_map: Dict,
+    split_mention_ids: List[str],
+    prompt: PromptTemplate,
+    parser: StructuredOutputParser,
+    cache_dir: Path = "/tmp/gpt_sum/",
+    gpt_version: str = "gpt-4",
+    save_folder: Path = "../../llm_sum",
+    run_name: str = "tagging",
+    temperature: float = 0.7,
+):
+    # Prepare the cache file
+    cache_file = os.path.join(cache_dir, f"{gpt_version}_{run_name}_cache.pkl")
+    ensure_path(cache_file)
+    cache_file = Path(cache_file)
+
+    if cache_file.exists():
+        raw_cache = pickle.load(open(cache_file, "rb"))
+    else:
+        raw_cache = {}
+
+    # Initialize the result dict
+    result_dict = defaultdict(dict)
+
+    # initialize the llm
+    llm = ChatOpenAI(
+        temperature=temperature, model=gpt_version, request_timeout=180
+    )  # Set the request_timeout to 180 seconds
+    chain = LLMChain(llm=llm, prompt=prompt)
+
+    # Generate
+    for m_id in tqdm(split_mention_ids):
+        marked_sentence = mention_map[m_id]["marked_sentence"]
+        marked_doc = mention_map[m_id]["marked_doc"]
+        doc = marked_doc.replace("<m>",  "").replace("</m>", "")
+        format_prompt = chain.prompt.format_prompt(marked_sentence=marked_sentence, document=doc)
+        if m_id in raw_cache:
+            predict = raw_cache[m_id]["predict"]
+        else:
+            with get_openai_callback() as cb:
+                predict = chain.run(
+                    marked_sentence=marked_sentence,
+                    document=doc,
+                )
+                predict_cost = {
+                    "Total": cb.total_tokens,
+                    "Prompt": cb.prompt_tokens,
+                    "Completion": cb.completion_tokens,
+                    "Cost": cb.total_cost,
+                }
+
+                raw_cache[m_id] = {
+                    "predict": predict,
+                    "predict_cost": predict_cost,
+                    "format_prompt": format_prompt,
+                }
+                pickle.dump(raw_cache, open(cache_file, "wb"))
+        try:
+            predict_dict = parser.parse(predict)
+            predict_dict["format_prompt"] = format_prompt
+            result_dict[m_id] = predict_dict
+        except Exception as e:
+            print(e)
+    # Save the result_dict
+    save_folder = os.path.join(save_folder, run_name)
+    ensure_dir(save_folder)
+    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    save_path = os.path.join(
+        save_folder,
+        f"{gpt_version}_{run_name}_sum_result_{timestamp}.pkl",
+    )
+    pickle.dump(result_dict, open(save_path, "wb"))
+    print(f"Saved prediction results to {save_path}")
+    
+    return result_dict
+        
 @app.command()
 def run_llm_pipeline(
     dataset_folder: str,
@@ -636,5 +715,48 @@ def run_llm_tagging_pipeline(
         print(result_dict)
 
 
+@app.command()
+def run_llm_sum_pipeline(
+    dataset_folder: str,
+    split: str,
+    debug: bool=False,
+    gpt_version: str="gpt-4",
+    gpt_raw_cache_dir:Path="/tmp/gpt_sum/",
+    save_folder:Path="../../llm_sum_results",
+    experiment_name: str="sum",  
+):
+    ensure_dir(gpt_raw_cache_dir)
+    # Set up openai api key
+    _ = load_dotenv(find_dotenv())  # Read local .env file
+    openai.api_key = os.environ["OPENAI_API_KEY"]
+    
+    # Read the mention_map from the dataset_folder
+    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+    split_mention_ids = [
+        m_id
+        for m_id, m in mention_map.items()
+        if m["men_type"] == "evt" and m["split"] == split
+    ]
+    
+    if debug:
+        print("Total mention ids: ", len(split_mention_ids))
+        split_mention_ids = split_mention_ids[:5]
+    
+    prompt, parser = prompt_and_parser_factory(experiment_name)
+
+    result_dict = llm_sum(
+        mention_map,
+        split_mention_ids,
+        prompt,
+        parser,
+        gpt_version=gpt_version,
+        save_folder=save_folder,
+        run_name=experiment_name,
+        cache_dir=gpt_raw_cache_dir,
+    )
+    
+    if debug:
+        print(result_dict)
+    
 if __name__ == "__main__":
     app()
