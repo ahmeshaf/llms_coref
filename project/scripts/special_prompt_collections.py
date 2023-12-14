@@ -49,6 +49,8 @@ amr_template="""
 You are an expert in Abstract Meaning Representation (AMR). Your task is the identify if the given two events (Event1, Event2) are coreferent.
 Hint: First identify the event triggers marked between <m> and </m> of the two events. Focussing on the event triggers, next, generate the AMR graphs of the two events. Comparing the two graphs, make a judgement of coreference. If they are, your Answer should be True otherwise, False.
 
+Be extremely precise in the prediction.
+
 Make sure your output is in JSON format as follows::
 {{
   "Event1 Trigger": Text corresponding to Event 1's Trigger between <m> and </m>

@@ -132,16 +132,10 @@ def run_ce(
             (mention_pairs, ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb")
         )
 
-    predictions = (ce_scores_ab + ce_scores_ba) / 2
-    similarities = torch.squeeze(predictions) > ce_threshold
+    predictions = torch.squeeze( (ce_scores_ab + ce_scores_ba) / 2 )
+    # similarities = torch.squeeze(predictions) > ce_threshold
 
-    scores = evaluate(
-        mention_map,
-        split_mention_ids,
-        mention_pairs,
-        similarities,
-        tmp_folder=ce_folder,
-    )
+    scores = evaluate(mention_map, split_mention_ids, mention_pairs, predictions, tmp_folder=ce_folder, threshold=ce_threshold)
     print(scores)
 
 
@@ -172,6 +166,14 @@ def run_ce_mention_pairs(
     }
 
     mention_pairs = sorted(pickle.load(open(mention_pairs_path, "rb")))
+
+    mention_pairs = [
+        (m1, m2)
+        for m1, m2 in mention_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+           and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+           != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
 
     run_ce(
         mention_map,

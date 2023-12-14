@@ -24,8 +24,10 @@ def init_weights(m):
 
     """
     if isinstance(m, nn.Linear):
-        nn.init.xavier_uniform_(m.weight)  # Xavier uniform initialization
-        nn.init.uniform_(m.bias)  # Uniform initialization
+        # nn.init.xavier_uniform_(m.weight)  # Xavier uniform initialization
+        # nn.init.uniform_(m.bias)  # Uniform initialization
+        n = m.in_features
+        m.weight.data = torch.eye(n, dtype=torch.float32)
 
 
 class BiEncoder(nn.Module):
@@ -44,10 +46,10 @@ class BiEncoder(nn.Module):
             self.tokenizer.add_tokens(["<m>", "</m>"], special_tokens=True)
             self.tokenizer.add_tokens(["<doc-s>", "</doc-s>"], special_tokens=True)
             self.tokenizer.add_tokens(["<g>"], special_tokens=True)
-            self.model = AutoModel.from_pretrained(model_name, load_in_8bit=True)
+            self.model = AutoModel.from_pretrained(model_name)
             self.model.resize_token_embeddings(len(self.tokenizer))
         else:
-            self.model = AutoModel.from_pretrained(model_name, load_in_8bit=True)
+            self.model = AutoModel.from_pretrained(model_name)
             self.model.eval()
 
         self.start_id = self.tokenizer.encode("<m>", add_special_tokens=False)[0]
@@ -56,14 +58,12 @@ class BiEncoder(nn.Module):
         self.hidden_size = self.model.config.hidden_size
         # torch.set_default_dtype(torch.float16)
         # 2 for CLS and one arg vector
-        self.linear = nn.Linear(self.hidden_size, self.hidden_size)
-        self.linear.half()
 
-        self.linear.half()
-        if linear_weights is None:
-            self.linear.apply(init_weights)
-        else:
-            self.linear.load_state_dict(linear_weights)
+        # self.linear = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        # if linear_weights is None:
+        #     self.linear.apply(init_weights)
+        # else:
+        #     self.linear.load_state_dict(linear_weights)
 
     def generate_cls_arg_vectors(
         self,
@@ -86,13 +86,13 @@ class BiEncoder(nn.Module):
             output = self.model(input_ids, attention_mask=attention_mask)
 
         last_hidden_states = output.last_hidden_state
-        cls_vector = output.pooler_output
+        # cls_vector = output.pooler_output
 
         arg_vec = None
         if arg is not None:
             arg_vec = (last_hidden_states * arg.unsqueeze(-1)).sum(1)
 
-        return cls_vector, arg_vec
+        return arg_vec
 
     def generate_model_output(
         self,
@@ -102,7 +102,7 @@ class BiEncoder(nn.Module):
         global_attention_mask,
         arg,
     ):
-        cls_vector, arg_vec = self.generate_cls_arg_vectors(
+        arg_vec = self.generate_cls_arg_vectors(
             input_ids, attention_mask, position_ids, global_attention_mask, arg
         )
         return torch.cat([arg_vec], dim=1)
@@ -135,9 +135,10 @@ class BiEncoder(nn.Module):
         if lm_only:
             return lm_output
 
-        return self.linear(lm_output)
+        return lm_output
+        # return self.linear(lm_output)
 
     def save_model(self, model_path):
         self.model.save_pretrained(model_path + "/bert")
         self.tokenizer.save_pretrained(model_path + "/bert")
-        torch.save(self.linear.state_dict(), model_path + "/linear.pt")
+        # torch.save(self.linear.state_dict(), model_path + "/linear.chkpt")

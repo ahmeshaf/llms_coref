@@ -5,6 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 import random
 
+import numpy as np
 import torch
 import torch.nn.functional as F
 import typer
@@ -13,6 +14,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModel
 
+from ..heuristics_pipeline import get_scores
 from .models import CrossEncoder
 from ..helper import ensure_path, f1_score, recall, precision, accuracy
 from .bi_encoder import BiEncoder
@@ -28,6 +30,7 @@ from .helper import (
     forward_ab,
     generate_biencoder_embeddings,
     generate_biencoder_embeddings_withgrad,
+    tokenize_bi_pairs,
 )
 
 app = typer.Typer()
@@ -37,30 +40,14 @@ app = typer.Typer()
 def evaluate(
     model,
     mention_dict,
-    selected_keys,
+    dev_dataset,
     device,
     top_k=10,
-    text_key="marked_doc",
     batch_size=32,
 ):
     # check the model is on the specified device
     model.to(device)
-    tokenizer = model.tokenizer
-    m_start_id = model.start_id
-    m_end_id = model.end_id
 
-    # tokenize the dev set
-    tokenized_dev_dict = tokenize_bi(
-        tokenizer, selected_keys, mention_dict, m_end_id, text_key=text_key
-    )
-    dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format(
-        "torch"
-    )  # list to torch tensor
-    dev_dataset = dev_dataset.map(
-        lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
-        batched=True,
-        batch_size=1,
-    )  # contains embs
     dev_dataloader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=False)
 
     faiss_db = VectorDatabase()
@@ -71,6 +58,7 @@ def evaluate(
     total = 0
     singleton_count = 0
 
+    dev_mention_pairs = []
     model.eval()
     with torch.no_grad():
         for batch in tqdm(dev_dataloader):
@@ -96,10 +84,14 @@ def evaluate(
                     continue
                 # Remove the first neighbor, which is the mention itself
                 neighbors_curr = neighbor_[1:]
+                neighbors_curr = neighbors_curr[:top_k]
                 # Check if the correct mention is in the neighbors
 
                 gold_label = batch["label"][i]
                 neighbor_label_list = [nb["label"] for nb in neighbors_curr]
+                dev_mention_pairs.extend(
+                    [(batch["unit_ids"][i], nb["unit_ids"]) for nb in neighbors_curr]
+                )
                 correct_mention_found = gold_label in neighbor_label_list
                 if correct_mention_found:
                     true_positives += 1
@@ -109,6 +101,8 @@ def evaluate(
     print("total:", total)
     recall = true_positives / total if total > 0 else 0
     print("recall:", recall)
+    dev_mention_pairs = list(set([tuple(sorted(p)) for p in dev_mention_pairs]))
+    print("B-CubRecall", get_scores(mention_dict, "dev", dev_mention_pairs, oracle=True)["B-Cubed"][0])
 
 
 def normalize_embeddings(embeddings):
@@ -202,7 +196,12 @@ def train_centroid_gpt(
     bi_encoder.train()
     import bitsandbytes as bnb
 
-    optimizer = bnb.optim.AdamW(bi_encoder.parameters(), lr=0.00001)
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": bi_encoder.model.parameters(), "lr": 0.00001},
+            {"params": bi_encoder.linear.parameters(), "lr": 0.001},
+        ]
+    )
     # optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
     split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
 
@@ -341,10 +340,10 @@ def train_centroid(
     bi_encoder.to(device)
     bi_encoder.train()
 
-    optimizer = bnb.optim.AdamW(
+    optimizer = torch.optim.AdamW(
         [
-            {"params": bi_encoder.model.parameters(), "lr": 0.000001},
-            {"params": bi_encoder.linear.parameters(), "lr": 0.0001},
+            {"params": bi_encoder.model.parameters(), "lr": 0.00001},
+            {"params": bi_encoder.linear.parameters(), "lr": 0.01},
         ]
     )
     split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
@@ -378,7 +377,7 @@ def train_centroid(
             cluster_embeddings,
             train_clusters,
             split_id2index,
-            top_k=10,
+            top_k=20,
             top_k_c=20,
         )
 
@@ -416,7 +415,9 @@ def train_centroid(
                 device,
                 text_key=text_key,
             )
-            all_embeddings = all_embeddings / torch.norm(all_embeddings, dim=1).reshape((-1, 1))
+            all_embeddings = all_embeddings / torch.norm(all_embeddings, dim=1).reshape(
+                (-1, 1)
+            )
 
             target_embedding = all_embeddings[m_indices, :]
             pos_men_embeddings = all_embeddings[pos_indices, :]
@@ -428,8 +429,8 @@ def train_centroid(
                 ]
             )
 
-            if len(pos_ids) == 1:
-                pos_men_embeddings = 0 * pos_men_embeddings
+            # if len(pos_ids) == 1:
+            #     pos_men_embeddings = 0 * pos_men_embeddings
 
             target_cluster_embedding = torch.mean(pos_men_embeddings, dim=0)
 
@@ -437,14 +438,18 @@ def train_centroid(
                 torch.matmul(other_clusters_embs, target_embedding.T)
             ).reshape((-1,))
 
-            hard_negs = torch.topk(dot_other_clusters, k=min(5, len(dot_other_clusters))).values
-
+            hard_negs = torch.topk(
+                dot_other_clusters, k=min(10, len(dot_other_clusters))
+            ).values
+            curr_loss = -torch.dot(
+                target_embedding.squeeze(), target_cluster_embedding.squeeze()
+            ) + torch.log(torch.sum(torch.exp(hard_negs)))
             # curr_loss = -torch.dot(
             #     torch.squeeze(target_embedding), torch.squeeze(target_cluster_embedding)
             # ) + torch.log(torch.sum(torch.exp(hard_negs)))
-            curr_loss = -torch.dot(
-                torch.squeeze(target_embedding), torch.squeeze(target_cluster_embedding)
-            ) + torch.mean(hard_negs)
+            # curr_loss = -torch.dot(
+            #     torch.squeeze(target_embedding), torch.squeeze(target_cluster_embedding)
+            # ) + torch.mean(hard_negs)
 
             curr_loss.backward()
             optimizer.step()
@@ -461,7 +466,14 @@ def train_centroid(
         bi_encoder.save_model(f"{save_path}/checkpoint-{i}/")
         print(f"saved model at {save_path}/checkpoint-{i}/")
         print(total_loss / len(train_selected_keys))
-        evaluate(bi_encoder, mention_map, dev_selected_keys, device, text_key=text_key)
+        evaluate(
+            bi_encoder,
+            mention_map,
+            dev_selected_keys,
+            device,
+            text_key=text_key,
+            top_k=5,
+        )
     return bi_encoder
 
 
@@ -469,7 +481,7 @@ def train(
     mention_dict,
     train_selected_keys,
     dev_selected_keys,
-    model_name="roberta-base-cased",
+    model_name="roberta-base",
     long=False,
     text_key="marked_doc",
     learning_rate=0.00001,
@@ -479,12 +491,32 @@ def train(
     max_sentence_len: int = 256,
 ):
     # Initialize the model and tokenizer
-    bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
+    if os.path.exists(model_name):
+        bi_encoder = load_model_from_path(BiEncoder, model_name, training=True, long=long)
+    else:
+        bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
+
+    # Device configuration
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    bi_encoder.to(device)
 
     tokenizer = bi_encoder.tokenizer
     m_start_id = bi_encoder.start_id
     m_end_id = bi_encoder.end_id
 
+    # tokenize the dev set
+    tokenized_dev_dict = tokenize_bi(
+        tokenizer, dev_selected_keys, mention_dict, m_end_id, text_key=text_key
+    )
+    dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format(
+        "torch"
+    )  # list to torch tensor
+    dev_dataset = dev_dataset.map(
+        lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
+        batched=True,
+        batch_size=1,
+    )  # contains embs
+    evaluate(bi_encoder, mention_dict, dev_dataset, device, top_k=5)
     # Tokenize anchors and positive candidates
     add_positive_candidates(mention_dict)
     tokenized_anchor_dict, tokenized_positive_dict = tokenize_with_postive_condiates(
@@ -517,10 +549,6 @@ def train(
     combined_dataset = CombinedDataset(train_dataset, train_dataset_positive_candidates)
     train_dataloader = DataLoader(combined_dataset, batch_size=batch_size, shuffle=True)
 
-    # Device configuration
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    bi_encoder.to(device)
-
     # FAISS database setup
     faiss_db = VectorDatabase()
     train_index, _ = create_faiss_db(train_dataset, bi_encoder, device=device)
@@ -538,11 +566,14 @@ def train(
         swap=False,
         reduction="mean",
     )
-    optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": bi_encoder.model.parameters(), "lr": 0.00001},
+            # {"params": bi_encoder.linear.parameters(), "lr": 0.001},
+        ]
+    )
 
     # start the evaluation
-    # evaluate(bi_encoder, mention_dict, dev_selected_keys, device)
-
     # Training loop
     bi_encoder.train()
     for epoch in range(epochs):
@@ -591,7 +622,7 @@ def train(
             print(f"Error updating FAISS database at Epoch {epoch + 1}: {e}")
 
         # Evaluate the model
-        evaluate(bi_encoder, mention_dict, dev_selected_keys, device)
+        evaluate(bi_encoder, mention_dict, dev_dataset, device, top_k=5)
 
     return bi_encoder
 
@@ -623,9 +654,217 @@ def predict_dpos(parallel_model, dev_ab, dev_ba, device, batch_size):
     return torch.cat(all_scores_ab), torch.cat(all_scores_ba)
 
 
+def train_bi_bce(
+    train_pairs,
+    train_labels,
+    dev_pairs,
+    dev_labels,
+    parallel_model,
+    mention_map,
+    output_folder,
+    device,
+    text_key="marked_sentence",
+    max_sentence_len=512,
+    batch_size=16,
+    n_iters=50,
+    lr_lm=0.0001,
+):
+    device = torch.device(device)
+    # bce_loss = torch.nn.BCELoss()
+    mse_loss = torch.nn.MSELoss()
+
+    optimizer = torch.optim.AdamW(
+        [
+            {"params": parallel_model.module.model.parameters(), "lr": lr_lm},
+        ]
+    )
+    # debug
+    # train_pairs = train_pairs[:10]
+    # train_labels = train_labels[:10]
+    # dev_pairs = dev_pairs[:10]
+    # dev_labels = dev_labels[:10]
+
+    tokenizer = parallel_model.module.tokenizer
+
+    train_a, train_b = zip(*train_pairs)
+    dev_a, dev_b = zip(*dev_pairs)
+
+    train_dataset = tokenize_bi_pairs(
+        tokenizer,
+        train_pairs,
+        mention_map,
+        parallel_model.module.start_id,
+        parallel_model.module.end_id,
+        max_sentence_len=max_sentence_len,
+        text_key=text_key,
+        label_key="gold_cluster",
+        truncate=True,
+    )
+    # train_dataset.dataset1 = train_dataset.dataset1.map(
+    #     lambda
+    # )
+
+    dev_dataset = tokenize_bi_pairs(
+        tokenizer,
+        dev_pairs,
+        mention_map,
+        parallel_model.module.start_id,
+        parallel_model.module.end_id,
+        max_sentence_len=max_sentence_len,
+        text_key=text_key,
+        label_key="gold_cluster",
+        truncate=True,
+    )
+    # dev_dataset = Dataset.from_dict(dev_dict).with_format()
+    # dev_data_loader = DataLoader(dev_dataset, batch_size=batch_size, shuffle=True)
+
+    for n in range(n_iters):
+        iteration_loss = 0.0
+        train_dataset_loader = DataLoader(
+            train_dataset, batch_size=batch_size, shuffle=True
+        )
+        for batch_m1, batch_m2 in tqdm(train_dataset_loader, desc="Training"):
+            optimizer.zero_grad()
+
+            embeddings_1 = process_batch(batch_m1, parallel_model.module, device)
+            embeddings_2 = process_batch(batch_m2, parallel_model.module, device)
+
+            batch_labels = batch_m1["labels"].to(device)
+
+            cosine_similarity = torch.m(embeddings_1, embeddings_2)
+
+            loss = mse_loss(cosine_similarity, batch_labels)
+            # sigmoid = torch.sigmoid(cosine_similarity)
+            # loss = torch.sum((-batch_labels) * cosine_similarity) + torch.log(
+            #     torch.sum(torch.exp((1.0 - batch_labels) * cosine_similarity))
+            # )
+            loss.backward()
+            optimizer.step()
+            iteration_loss += loss.item()
+        print("Iteration Loss", iteration_loss / len(train_dataset_loader))
+        with torch.no_grad():
+            all_predictions = []
+            dev_labels = (dev_dataset.dataset1["labels"]).cpu().numpy().astype(int)
+            dev_labels = (dev_labels + 1) // 2
+            for batch_m1, batch_m2 in tqdm(
+                DataLoader(dev_dataset, batch_size=batch_size), desc="Predicting"
+            ):
+                embeddings_1 = process_batch(batch_m1, parallel_model.module, device)
+                embeddings_2 = process_batch(batch_m2, parallel_model.module, device)
+                cosine_similarity = torch.cosine_similarity(
+                    embeddings_1, embeddings_2
+                ).detach()
+                # print(cosine_similarity)
+                # sigmoid = torch.exp(cosine_similarity).cpu().numpy()
+                predictions = cosine_similarity > 0.5
+                # print(predictions)
+                all_predictions.extend(predictions.tolist())
+            # breakpoint()
+            all_predictions = np.array(all_predictions)
+            # breakpoint()
+            print("dev accuracy:", accuracy(all_predictions, dev_labels))
+            print("dev precision:", precision(all_predictions, dev_labels))
+            print("dev recall:", recall(all_predictions, dev_labels))
+            print("dev f1:", f1_score(all_predictions, dev_labels))
+        # print(f"Iteration {n} Loss:", iteration_loss / len(train_pairs))
+        # # iteration accuracy
+        # dev_scores_ab, dev_scores_ba = predict_dpos(
+        #     parallel_model, dev_ab, dev_ba, device, batch_size
+        # )
+        # dev_predictions = (dev_scores_ab + dev_scores_ba) / 2
+        # dev_predictions = dev_predictions > 0.5
+        # dev_predictions = torch.squeeze(dev_predictions)
+
+        # print("dev accuracy:", accuracy(dev_predictions, dev_labels))
+        # print("dev precision:", precision(dev_predictions, dev_labels))
+        # print("dev recall:", recall(dev_predictions, dev_labels))
+        # print("dev f1:", f1_score(dev_predictions, dev_labels))
+        if n % 2 == 0:
+            scorer_folder = str(output_folder) + f"/scorer/chk_{n}"
+            parallel_model.module.save_model(scorer_folder)
+            print(f"saved model at {n}")
+
+    scorer_folder = str(output_folder) + "/scorer/"
+    parallel_model.module.save_model(scorer_folder)
+
+
+@app.command()
+def train_biencoder_bce(
+    mention_map_file,
+    train_pairs_path,
+    dev_pairs_path,
+    output_folder: Path,
+    model_name: str = "roberta-large",
+    max_sentence_len: int = 512,
+    is_long=False,
+    device="cuda:0",
+    text_key: str = "neighbors_3",
+    batch_size: int = 20,
+    epochs: int = 10,
+    lr_lm: float = 0.0001,
+):
+    ensure_path(output_folder)
+    mention_map = pickle.load(open(mention_map_file, "rb"))
+
+    train_pairs = list(pickle.load(open(train_pairs_path, "rb")))
+    print(len(train_pairs))
+    train_pairs = [
+        (m1, m2)
+        for m1, m2 in train_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
+
+    dev_pairs = list(pickle.load(open(dev_pairs_path, "rb")))
+    print(len(dev_pairs))
+    dev_pairs = [
+        (m1, m2)
+        for m1, m2 in dev_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
+    train_labels = [
+        int(mention_map[m1]["gold_cluster"] == mention_map[m2]["gold_cluster"])
+        for m1, m2 in train_pairs
+    ]
+    dev_labels = [
+        int(mention_map[m1]["gold_cluster"] == mention_map[m2]["gold_cluster"])
+        for m1, m2 in dev_pairs
+    ]
+
+    device = torch.device(device)
+    device_ids = list(range(1))
+
+    scorer_module = BiEncoder(model_name=model_name, is_training=True)
+    print(len(train_pairs))
+    print(len(dev_pairs))
+
+    parallel_model = torch.nn.DataParallel(scorer_module, device_ids=device_ids)
+    parallel_model.module.to(device)
+    train_bi_bce(
+        train_pairs,
+        train_labels,
+        dev_pairs,
+        dev_labels,
+        parallel_model,
+        mention_map,
+        output_folder,
+        text_key=text_key,
+        max_sentence_len=max_sentence_len,
+        device=device,
+        batch_size=batch_size,
+        n_iters=epochs,
+        lr_lm=0.00001,
+    )
+
+
 @app.command()
 def train_biencoder(
     mention_map_path: str,
+    train_id: str = "train",
+    dev_id: str = "dev",
     model_name: str = "roberta-base-uncased",
     text_key="marked_sentence",
     long=False,
@@ -633,6 +872,7 @@ def train_biencoder(
     epochs: int = 10,
     save_path: str = "model_save_path",
     learning_rate: float = 0.1,
+    max_sentence_len: int = 150,
 ):
     # Load the training and developing data
     ensure_path(Path(save_path + "/a.l"))
@@ -645,7 +885,7 @@ def train_biencoder(
     train_split_ids = [
         m_id
         for m_id, m in mention_map.items()
-        if m["men_type"] == "evt" and m["split"] == "train"
+        if m["men_type"] == "evt" and m["split"] == train_id
     ]
 
     train_clusters = defaultdict(list)
@@ -655,14 +895,28 @@ def train_biencoder(
     dev_selected_ids = [
         m_id
         for m_id, m in mention_map.items()
-        if m["men_type"] == "evt" and m["split"] == "dev"
+        if m["men_type"] == "evt" and m["split"] == dev_id
     ]
     # dev_selected_ids = train_split_ids
 
     # Use arguments in the train function
-    # trained_model = train(
+    trained_model = train(
+        mention_map,
+        train_split_ids,
+        dev_selected_ids,
+        model_name=model_name,
+        long=long,
+        text_key=text_key,
+        batch_size=batch_size,
+        epochs=epochs,
+        learning_rate=learning_rate,
+        save_path=save_path,
+        max_sentence_len=max_sentence_len,
+    )
+    # trained_model = train_centroid(
     #     mention_map,
     #     train_split_ids,
+    #     train_clusters,
     #     dev_selected_ids,
     #     model_name=model_name,
     #     long=long,
@@ -672,19 +926,6 @@ def train_biencoder(
     #     learning_rate=learning_rate,
     #     save_path=save_path,
     # )
-    trained_model = train_centroid(
-        mention_map,
-        train_split_ids,
-        train_clusters,
-        dev_selected_ids,
-        model_name=model_name,
-        long=long,
-        text_key=text_key,
-        batch_size=batch_size,
-        epochs=epochs,
-        learning_rate=learning_rate,
-        save_path=save_path,
-    )
 
 
 def train_ce(
@@ -701,7 +942,7 @@ def train_ce(
     batch_size=16,
     n_iters=50,
     lr_lm=0.00001,
-    lr_class=0.001,
+    lr_class=0.0001,
 ):
     bce_loss = torch.nn.BCELoss()
     # mse_loss = torch.nn.MSELoss()
@@ -712,7 +953,6 @@ def train_ce(
             {"params": parallel_model.module.linear.parameters(), "lr": lr_class},
         ]
     )
-
     # debug
     # train_pairs = train_pairs[:10]
     # train_labels = train_labels[:10]
@@ -790,6 +1030,21 @@ def train_ce(
     save_ce_model(scorer_folder, parallel_model)
 
 
+def load_model_from_path(model_class, encoder_path, training=False, long=False):
+    bert_path = encoder_path + "/bert"
+    linear_path = encoder_path + "/linear.chkpt"
+    if os.path.exists(linear_path):
+        linear_weights = torch.load(linear_path)
+    else:
+        linear_weights = None
+    return model_class(
+        model_name=bert_path,
+        linear_weights=linear_weights,
+        is_training=training,
+        long=long,
+    )
+
+
 @app.command()
 def train_cross_encoder(
     dataset_folder,
@@ -811,8 +1066,24 @@ def train_cross_encoder(
     }
 
     train_pairs = list(pickle.load(open(train_pairs_path, "rb")))
-    dev_pairs = list(pickle.load(open(dev_pairs_path, "rb")))
+    print(len(train_pairs))
+    train_pairs = [
+        (m1, m2)
+        for m1, m2 in train_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
 
+    dev_pairs = list(pickle.load(open(dev_pairs_path, "rb")))
+    print(len(dev_pairs))
+    dev_pairs = [
+        (m1, m2)
+        for m1, m2 in dev_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
     train_labels = [
         int(mention_map[m1]["gold_cluster"] == mention_map[m2]["gold_cluster"])
         for m1, m2 in train_pairs
@@ -824,10 +1095,17 @@ def train_cross_encoder(
 
     device = torch.device(device)
     device_ids = list(range(1))
+    if os.path.exists(model_name):
+        scorer_module = load_model_from_path(
+            CrossEncoder, model_name, training=True, long=is_long
+        )
+    else:
+        scorer_module = CrossEncoder(
+            model_name=model_name, is_training=True, long=is_long
+        )
 
-    scorer_module = CrossEncoder(
-        is_training=True, model_name=model_name, long=is_long
-    ).to(device)
+    print(len(train_pairs))
+    print(len(dev_pairs))
 
     parallel_model = torch.nn.DataParallel(scorer_module, device_ids=device_ids)
     parallel_model.module.to(device)

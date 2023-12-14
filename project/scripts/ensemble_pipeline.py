@@ -72,13 +72,7 @@ def and_clustering(
         mention_map_file, split, score_file_a, score_file_b, threshold
     )
     similarities_a_and_b = np.logical_and(similarities_a, similarities_b)
-    scores = evaluate(
-        mention_map,
-        split_ids,
-        all_pairs,
-        similarities_a_and_b,
-        tmp_folder=working_folder,
-    )
+    scores = evaluate(mention_map, split_ids, all_pairs, similarities_a_and_b, tmp_folder=working_folder)
     print(scores)
 
 
@@ -95,13 +89,7 @@ def or_clustering(
         mention_map_file, split, score_file_a, score_file_b, threshold
     )
     similarities_a_and_b = np.logical_or(similarities_a, similarities_b)
-    scores = evaluate(
-        mention_map,
-        split_ids,
-        all_pairs,
-        similarities_a_and_b,
-        tmp_folder=working_folder,
-    )
+    scores = evaluate(mention_map, split_ids, all_pairs, similarities_a_and_b, tmp_folder=working_folder)
     print(scores)
 
 
