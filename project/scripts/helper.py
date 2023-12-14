@@ -163,11 +163,12 @@ def cluster_greedy(mentions, mention_pairs, similarities, threshold=0.5):
             c_1 = base_clusters[m1_ind]
             c_2 = base_clusters[m2_ind]
             # if score > threshold:
-            # score = np.mean([similarity_matrix[i, j] for i in c_1 for j in c_2])
+
             while not isinstance(c_2, list):
                 c_2 = base_clusters[c_2]
             while not isinstance(c_1, list):
                 c_1 = base_clusters[c_1]
+            score = np.mean([similarity_matrix[i, j] for i in c_1 for j in c_2])
             if score > threshold:
                 for m_ in c_2:
                     if m_ not in c_1:
@@ -191,14 +192,14 @@ def precision(predicted_labels, true_labels):
     """
     Precision is True Positives / All Positives Predictions
     """
-    return sum(np.logical_and(predicted_labels, true_labels)) / sum(predicted_labels)
+    return sum(torch.logical_and(predicted_labels, true_labels)) / sum(predicted_labels)
 
 
 def recall(predicted_labels, true_labels):
     """
     Recall is True Positives / All Positive Labels
     """
-    return sum(np.logical_and(predicted_labels, true_labels)) / sum(true_labels)
+    return sum(torch.logical_and(predicted_labels, true_labels)) / sum(true_labels)
 
 
 def f1_score(predicted_labels, true_labels):

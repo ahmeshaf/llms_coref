@@ -135,7 +135,7 @@ def run_ce(
     predictions = torch.squeeze( (ce_scores_ab + ce_scores_ba) / 2 )
     # similarities = torch.squeeze(predictions) > ce_threshold
 
-    scores = evaluate(mention_map, split_mention_ids, mention_pairs, predictions, tmp_folder=ce_folder)
+    scores = evaluate(mention_map, split_mention_ids, mention_pairs, predictions, tmp_folder=ce_folder, threshold=ce_threshold)
     print(scores)
 
 

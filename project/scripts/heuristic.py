@@ -364,6 +364,7 @@ def get_lh_pairs(mention_map, split, heu="lh", lh_threshold=0.15, lemma_pairs=No
         split_syn_lemma_pairs,
         threshold=lh_threshold,
     )
+
     return m_pairs, m_pairs_trans
 
 

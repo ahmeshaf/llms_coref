@@ -59,11 +59,11 @@ class BiEncoder(nn.Module):
         # torch.set_default_dtype(torch.float16)
         # 2 for CLS and one arg vector
 
-        self.linear = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
-        if linear_weights is None:
-            self.linear.apply(init_weights)
-        else:
-            self.linear.load_state_dict(linear_weights)
+        # self.linear = nn.Linear(self.hidden_size, self.hidden_size, bias=False)
+        # if linear_weights is None:
+        #     self.linear.apply(init_weights)
+        # else:
+        #     self.linear.load_state_dict(linear_weights)
 
     def generate_cls_arg_vectors(
         self,
@@ -135,10 +135,10 @@ class BiEncoder(nn.Module):
         if lm_only:
             return lm_output
 
-        # return lm_output
-        return self.linear(lm_output)
+        return lm_output
+        # return self.linear(lm_output)
 
     def save_model(self, model_path):
         self.model.save_pretrained(model_path + "/bert")
         self.tokenizer.save_pretrained(model_path + "/bert")
-        torch.save(self.linear.state_dict(), model_path + "/linear.chkpt")
+        # torch.save(self.linear.state_dict(), model_path + "/linear.chkpt")

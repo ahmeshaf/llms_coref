@@ -22,7 +22,7 @@ from .bert.helper import (
     create_faiss_db,
     VectorDatabase,
     tokenize_bi,
-    tokenize_ce,
+    tokenize_ce, get_context,
 )
 from .bert.bi_encoder import BiEncoder
 from .helper import ensure_path, get_split_ids
@@ -416,7 +416,7 @@ def get_mention_pair_similarity_bertscore(
 
     def get_b_sent(mention_map, m_id):
         return (
-            mention_map[m_id]["mention_text"] + " [SEP] " + mention_map[m_id][text_key]
+            mention_map[m_id]["mention_text"] + " [SEP] " + get_context(mention_map[m_id], text_key)
         )
 
     for i in tqdm(
@@ -494,6 +494,8 @@ def save_knn_pairs_bert_score(
             if mention_map[retrieve_mention_ids[i]]["topic"]
             == mention_map[store_mention_ids[j]]["topic"]
         ]
+    print(len(mention_pairs_inds))
+    mention_pairs_inds = list(set([tuple(sorted(p)) for p in mention_pairs_inds]))
     print(len(mention_pairs_inds))
     lemma_scores, sentence_scores = get_mention_pair_similarity_bertscore(
         mention_pairs_inds,

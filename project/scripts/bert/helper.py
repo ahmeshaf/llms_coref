@@ -233,7 +233,7 @@ def tokenize_with_postive_condiates(
 
     for mention_id in mention_ids:
         anchor = mention_map[mention_id]
-        anchor_sentence = sentence = get_context(anchor, text_key)
+        anchor_sentence = get_context(anchor, text_key)
         anchor_instance = f"<g> {doc_start} {anchor_sentence} {doc_end}"
         anchor_instance_list.append(anchor_instance)
         anchor_gold_label_list.append(str(anchor[label_key]))
