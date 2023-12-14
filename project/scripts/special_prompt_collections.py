@@ -158,3 +158,34 @@ tag_prompt = PromptTemplate(
     template=tag_template,
     input_variables=['original_sentence', 'original_event_trigger', 'paraphrased_sentence'],
 )
+
+# summarization
+summarization_template="""
+You are an expert Event Argument Extractor and Event Summarizer.
+
+I will provide a Document along with a Sentence with the Marked Trigger phrase identifying the event in the Sentence. Your task is to break the problem, by first identifying the Event Trigger (marked between <m> and </m>). Then, identify the important Wikipedia Entities and Dates associated with the Event Trigger. Finally using all the information generated a summarized coherent string of the form:
+On [Date], [/wiki/Agent_Entity] [Event Trigger] [/wiki/Patient_Theme_Entity] in [/wiki/Location]
+
+For example, if the identified Trigger is  [foiled] and the Arguments are {{Indian_Navy, Piracy_in_Somalia, Gulf_of_Aden,  2011-11-11}}
+
+Expected Response: 
+"On November 11, 2011, the Indian Navy (/wiki/Indian_Navy) <m> foiled </m> a Somali pirate attack (/wiki/Piracy_in_Somalia) in the Gulf of Aden (/wiki/Gulf_of_Aden)."
+
+Now generate the Expected Response in JSON Format with keys:
+{{  
+   Trigger:
+   Arguments:
+    Event Summary in One Sentence with Marked Trigger: 
+}}
+
+Now do this task for the following:
+
+Document: {document}
+
+Marked Sentence: {marked_sentence}
+Expected Response:
+"""
+summarization_prompt = PromptTemplate(
+    template=summarization_template,
+    input_variables=['document', 'marked_sentence'],
+)
