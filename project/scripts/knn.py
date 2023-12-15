@@ -14,6 +14,10 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 from typer import Typer
 
+from .heuristic import (
+    get_lemma_pairs_labels,
+    get_mention_pair_similarity_lemma,
+)
 from .bert.models import CrossEncoder
 from .bert.helper import (
     get_arg_attention_mask_wrapper,
@@ -22,10 +26,11 @@ from .bert.helper import (
     create_faiss_db,
     VectorDatabase,
     tokenize_bi,
-    tokenize_ce, get_context,
+    tokenize_ce,
+    get_context,
 )
 from .bert.bi_encoder import BiEncoder
-from .helper import ensure_path, get_split_ids
+from .helper import ensure_path, get_split_ids, jc
 
 app = Typer()
 
@@ -416,7 +421,9 @@ def get_mention_pair_similarity_bertscore(
 
     def get_b_sent(mention_map, m_id):
         return (
-            mention_map[m_id]["mention_text"] + " [SEP] " + get_context(mention_map[m_id], text_key)
+            mention_map[m_id]["mention_text"]
+            + " [SEP] "
+            + get_context(mention_map[m_id], text_key)
         )
 
     for i in tqdm(
@@ -462,6 +469,161 @@ def get_mention_pair_similarity_bertscore(
         all_sent_scores.extend(sent_scores.tolist())
 
     return all_mention_scores, all_sent_scores
+
+
+def get_similarities(sentence, lemma_pair, pairs, mention_map):
+    pair_sentences = [
+        mention_map[m1_]["sentence_tokens"] + mention_map[m2_]["sentence_tokens"]
+        for m1_, m2_ in pairs
+    ]
+
+    lemma_pairs = [
+        tuple(
+            sorted(
+                (mention_map[m1_]["lemma"].lower() + mention_map[m2_]["lemma"].lower())
+            )
+        )
+        for m1_, m2_ in pairs
+    ]
+
+    return [
+        jc(sentence, sentence2) + len(set(lemma_pair).intersection(set(lemma_pair2)))
+        for sentence2, lemma_pair2 in zip(pair_sentences, lemma_pairs)
+    ]
+
+
+@app.command()
+def get_two_shot_examples_lh(
+    mention_map_file: Path,
+    store_split: str,
+    store_pairs_path: Path,
+    retrieve_split: str,
+    retrieve_pairs_path: Path,
+    output_path: Path,
+    text_key: str = "marked_sentence",
+):
+    """
+
+    Parameters
+    ----------
+    mention_map_file
+    store_split
+    store_pairs_path
+    retrieve_split
+    retrieve_pairs_path
+    output_path: save mention_id to 2 mention pairs from the training set
+    text_key
+
+    Returns
+    -------
+
+    """
+    ensure_path(output_path)
+    mention_map = pickle.load(open(mention_map_file, "rb"))
+
+    mention_pair2twoshot = {}
+
+    store_mention_ids = get_split_ids(mention_map, store_split)
+    retrieve_mention_ids = get_split_ids(mention_map, retrieve_split)
+    store_mention_pairs = pickle.load(open(store_pairs_path, "rb"))
+
+    store_lemma_pairs = [
+        tuple(
+            sorted([mention_map[m1]["lemma"].lower(), mention_map[m2]["lemma"].lower()])
+        )
+        for m1, m2 in store_mention_pairs
+    ]
+
+    # implement zip of mention_pairs and cluster label (True if coreferent, false if not coreferent)
+    store_labels = [
+        True
+        if mention_map[id1]["gold_cluster"] == mention_map[id2]["gold_cluster"]
+        else False
+        for id1, id2 in store_mention_pairs
+    ]
+
+    neg_store = defaultdict(set)
+    pos_store = defaultdict(set)
+    pos_pair_store = defaultdict(set)
+    neg_pair_store = defaultdict(set)
+
+    all_pos_pairs = []
+    all_neg_pairs = []
+
+    for pair, lemma_pair, label in zip(store_mention_pairs, store_lemma_pairs, store_labels):
+        if label:
+            pos_store[lemma_pair[0]].add(pair)
+            pos_store[lemma_pair[1]].add(pair)
+            pos_pair_store[lemma_pair].add(pair)
+            all_pos_pairs.append(pair)
+        else:
+            neg_store[lemma_pair[0]].add(pair)
+            neg_store[lemma_pair[1]].add(pair)
+            neg_pair_store[lemma_pair].add(pair)
+            all_neg_pairs.append(pair)
+
+    retrieve_mention_pairs = pickle.load(open(retrieve_pairs_path, "rb"))
+
+    def print_pair(tuple_id, mention_map):
+        print(mention_map[tuple_id[0]]["marked_sentence"])
+        print(mention_map[tuple_id[1]]["marked_sentence"])
+    not_found = set()
+    for m1, m2 in tqdm(retrieve_mention_pairs, desc="Retrieving"):
+        # print("Target Mention")
+        # print_pair((m1, m2), mention_map)
+        mention_1 = mention_map[m1]
+        mention_2 = mention_map[m2]
+        # print(mention_1["mention_text"])
+        # print(mention_2["mention_text"])
+        lemma1 = mention_1["lemma"].lower()
+        lemma2 = mention_2["lemma"].lower()
+        lemma_pair = tuple(sorted([lemma1, lemma2]))
+
+        pos_pairs = []
+        neg_pairs = []
+
+        if len(pos_pair_store[lemma_pair]) > 0:
+            pos_pairs.extend(pos_pair_store[lemma_pair])
+        else:
+            if lemma1 in pos_store:
+                pos_pairs.extend(pos_store[lemma1])
+            if lemma2 in pos_store:
+                pos_pairs.extend(pos_store[lemma2])
+
+        if len(neg_pair_store[lemma_pair]) > 0:
+            neg_pairs.extend(neg_pair_store[lemma_pair])
+        else:
+            if lemma1 in neg_store:
+                neg_pairs.extend(neg_store[lemma1])
+            if lemma2 in neg_store:
+                neg_pairs.extend(neg_store[lemma2])
+
+        sentence_tokens1 = mention_1["sentence_tokens"]
+        sentence_tokens2 = mention_2["sentence_tokens"]
+        combined_sentence = sentence_tokens1 + sentence_tokens2
+
+        if len(pos_pairs) == 0:
+            # print("Not found Positive Mention Pair", (m1, m2))
+            # not_found.append((m1, m2))
+            pos_pairs = all_pos_pairs
+            not_found.add((m1, m2))
+        if len(neg_pairs) == 0:
+            # print("Not found Negative Mention Pair", (m1, m2))
+            neg_pairs = all_neg_pairs
+            not_found.add((m1, m2))
+
+        pos_similarities = get_similarities(combined_sentence, lemma_pair, pos_pairs, mention_map)
+        neg_similarities = get_similarities(combined_sentence, lemma_pair, neg_pairs, mention_map)
+
+        pos_p_sims = sorted(zip(pos_pairs, pos_similarities), key=lambda x: x[1], reverse=True)
+        neg_p_pairs = sorted(zip(neg_pairs, neg_similarities), key=lambda x: x[1], reverse=True)
+
+        best_pos = pos_p_sims[0][0]
+        best_neg = neg_p_pairs[0][0]
+        mention_pair2twoshot[(m1, m2)] = {"pos": best_pos, "neg":  best_neg}
+    print("not found pairs", len(not_found))
+    pickle.dump(mention_pair2twoshot, open(output_path, "wb"))
+
 
 
 @app.command()

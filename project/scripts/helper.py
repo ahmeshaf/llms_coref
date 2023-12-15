@@ -41,7 +41,7 @@ def remove_puncts(target_str):
 
 
 def jc(arr1, arr2):
-    return len(set.intersection(arr1, arr2)) / len(set.union(arr1, arr2))
+    return len(set.intersection(set(arr1), set(arr2))) / len(set.union(set(arr1), set(arr2)))
 
 
 def generate_mention_pairs(mention_map, split):
@@ -288,6 +288,8 @@ def evaluate(
     cr, cp, cf = np.round(np.round(evaluate_documents(doc, ceafe), 3) * 100, 1)
     lr, lp, lf = np.round(np.round(evaluate_documents(doc, lea), 3) * 100, 1)
 
+    conll = ( mf + bf + cf )/3
+
     results = {
         "MUC": (mr, mp, mf),
         "B-Cubed": (br, bp, bf),
@@ -295,6 +297,8 @@ def evaluate(
         "CONLL": (mf + bf + cf) / 3,
         "LEA": (lr, lp, lf),
     }
+
+    print(f"{br} & {bp} & {bf} & {conll}")
 
     return results
 

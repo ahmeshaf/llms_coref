@@ -27,6 +27,7 @@ class CrossEncoder(nn.Module):
             self.tokenizer.add_tokens(["<m>", "</m>"], special_tokens=True)
             self.tokenizer.add_tokens(["<doc-s>", "</doc-s>"], special_tokens=True)
             self.tokenizer.add_tokens(["<g>"], special_tokens=True)
+            self.tokenizer.add_tokens(["/wiki/"], special_tokens=True)
             self.model = AutoModel.from_pretrained(model_name)
             self.model.resize_token_embeddings(len(self.tokenizer))
         else:

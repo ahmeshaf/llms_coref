@@ -77,7 +77,7 @@ def get_mention_pair_similarity_lemma(
     similarities = []
 
     # generate similarity using the mention text
-    for pair in tqdm(mention_pairs, desc="Generating Similarities"):
+    for pair in mention_pairs:
         men1, men2 = pair
         men_map1 = mention_map[men1]
         men_map2 = mention_map[men2]
@@ -98,7 +98,7 @@ def get_mention_pair_similarity_lemma(
         pair_tuple = tuple(sorted([lemma1, lemma2]))
 
         similarities.append(
-            (lemma_sim or pair_tuple in syn_lemma_pairs) and sent_sim > threshold
+            (lemma_sim or pair_tuple in syn_lemma_pairs) * sent_sim
         )
 
     return np.array(similarities)
@@ -370,7 +370,12 @@ def get_lh_pairs(mention_map, split, heu="lh", lh_threshold=0.15, lemma_pairs=No
 
 @app.command()
 def save_lh_pairs(
-    dataset_folder: str, split: str, heu: str, lh_threshold: float, pairs_out_file: Path
+    dataset_folder: str,
+    split: str,
+    heu: str,
+    lh_threshold: float,
+    pairs_out_file: Path,
+    add_fn: bool = False,
 ):
     ensure_path(pairs_out_file)
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
@@ -378,6 +383,9 @@ def save_lh_pairs(
 
     # use only the positive predictions
     tp_fp_fn = m_pairs[0] + m_pairs[1]
+    if add_fn:
+        tp_fp_fn += m_pairs[-1]
+
     mention_pairs = set()
     for m1, m2 in tp_fp_fn:
         p = tuple(sorted((m1, m2)))

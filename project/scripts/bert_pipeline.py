@@ -132,10 +132,17 @@ def run_ce(
             (mention_pairs, ce_scores_ab, ce_scores_ba), open(ce_score_file, "wb")
         )
 
-    predictions = torch.squeeze( (ce_scores_ab + ce_scores_ba) / 2 )
+    predictions = torch.squeeze((ce_scores_ab + ce_scores_ba) / 2)
     # similarities = torch.squeeze(predictions) > ce_threshold
 
-    scores = evaluate(mention_map, split_mention_ids, mention_pairs, predictions, tmp_folder=ce_folder, threshold=ce_threshold)
+    scores = evaluate(
+        mention_map,
+        split_mention_ids,
+        mention_pairs,
+        predictions,
+        tmp_folder=ce_folder,
+        threshold=ce_threshold,
+    )
     print(scores)
 
 
@@ -155,10 +162,19 @@ def run_ce_mention_pairs(
     ce_score_file: Path = None,
     ce_threshold: float = 0.5,
     ce_force: bool = False,
+    predicted_topic: Path = None,
 ):
     ensure_path(ce_score_file)
     mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
 
+    if predicted_topic and predicted_topic.exists():
+        print("Using Predicted topics for Test")
+        pred_tops = pickle.load(open(predicted_topic, "rb"))
+        doc2clus = {doc+".xml": i for i, docs in enumerate(pred_tops) for doc in docs}
+        for men in mention_map.values():
+            if men["doc_id"] in doc2clus:
+                men["topic"] = str(doc2clus[men["doc_id"]])
+    # breakpoint()
     split_mention_ids = {
         m_id
         for m_id, men in mention_map.items()
@@ -171,8 +187,8 @@ def run_ce_mention_pairs(
         (m1, m2)
         for m1, m2 in mention_pairs
         if mention_map[m1]["topic"] == mention_map[m2]["topic"]
-           and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
-           != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
     ]
 
     run_ce(

@@ -102,7 +102,10 @@ def evaluate(
     recall = true_positives / total if total > 0 else 0
     print("recall:", recall)
     dev_mention_pairs = list(set([tuple(sorted(p)) for p in dev_mention_pairs]))
-    print("B-CubRecall", get_scores(mention_dict, "dev", dev_mention_pairs, oracle=True)["B-Cubed"][0])
+    print(
+        "B-CubRecall",
+        get_scores(mention_dict, "dev", dev_mention_pairs, oracle=True)["B-Cubed"][0],
+    )
 
 
 def normalize_embeddings(embeddings):
@@ -174,81 +177,6 @@ def calculate_loss(target_embedding, target_cluster_embedding, other_clusters_em
         target_embedding.squeeze(), target_cluster_embedding.squeeze()
     ) + torch.log(torch.sum(torch.exp(hard_negs)))
     return curr_loss
-
-
-def train_centroid_gpt(
-    mention_map,
-    train_selected_keys,
-    train_clusters,
-    dev_selected_keys,
-    model_name="roberta-base-cased",
-    long=False,
-    text_key="marked_doc",
-    learning_rate=0.1,
-    batch_size=2,
-    epochs=1,
-    save_path="../models/bi_encoder/",
-    device_id="cuda:0",
-):
-    device = torch.device(device_id)
-    bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
-    bi_encoder.to(device)
-    bi_encoder.train()
-    import bitsandbytes as bnb
-
-    optimizer = torch.optim.AdamW(
-        [
-            {"params": bi_encoder.model.parameters(), "lr": 0.00001},
-            {"params": bi_encoder.linear.parameters(), "lr": 0.001},
-        ]
-    )
-    # optimizer = torch.optim.Adam(bi_encoder.parameters(), lr=learning_rate)
-    split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
-
-    for epoch in range(epochs):
-        total_loss = 0.0
-        embeddings = generate_biencoder_embeddings(
-            mention_map, bi_encoder, train_selected_keys, batch_size, device
-        )
-        embeddings = normalize_embeddings(embeddings)
-
-        cluster_embeddings = calculate_cluster_embeddings(
-            train_clusters, embeddings, split_id2index
-        )
-
-        for i, m_id in tqdm(
-            enumerate(train_selected_keys),
-            desc=f"Epoch {epoch}: Training BiEncoder",
-            total=len(train_selected_keys),
-        ):
-            optimizer.zero_grad()
-            (
-                target_embedding,
-                target_cluster_embedding,
-                other_clusters_embs,
-            ) = prepare_embeddings_for_loss_calculation(
-                mention_map,
-                train_clusters,
-                m_id,
-                bi_encoder,
-                batch_size,
-                device,
-                cluster_embeddings,
-                split_id2index,
-            )
-
-            curr_loss = calculate_loss(
-                target_embedding, target_cluster_embedding, other_clusters_embs
-            )
-            # print("curr loss:", curr_loss.item())
-            curr_loss.backward()
-            optimizer.step()
-
-            total_loss += curr_loss.item()
-
-        print(f"Average Loss Epoch {epoch}: {total_loss / len(train_selected_keys)}")
-
-    return bi_encoder
 
 
 def generate_training_samples(
@@ -328,7 +256,10 @@ def train_centroid(
     if Path(model_name).exists():
         bert_model = model_name + "/bert"
         linear_file = model_name + "/linear.pt"
-        linear_weights = torch.load(linear_file)
+        if os.path.exists(linear_file):
+            linear_weights = torch.load(linear_file)
+        else:
+            linear_weights = None
         bi_encoder = BiEncoder(
             model_name=bert_model,
             linear_weights=linear_weights,
@@ -343,9 +274,26 @@ def train_centroid(
     optimizer = torch.optim.AdamW(
         [
             {"params": bi_encoder.model.parameters(), "lr": 0.00001},
-            {"params": bi_encoder.linear.parameters(), "lr": 0.01},
+            # {"params": bi_encoder.linear.parameters(), "lr": 0.01},
         ]
     )
+
+    tokenizer = bi_encoder.tokenizer
+    m_start_id = bi_encoder.start_id
+    m_end_id = bi_encoder.end_id
+    # tokenize the dev set
+    tokenized_dev_dict = tokenize_bi(
+        tokenizer, dev_selected_keys, mention_map, m_end_id, text_key=text_key
+    )
+    dev_dataset = Dataset.from_dict(tokenized_dev_dict).with_format(
+        "torch"
+    )  # list to torch tensor
+    dev_dataset = dev_dataset.map(
+        lambda batch: get_arg_attention_mask_wrapper(batch, m_start_id, m_end_id),
+        batched=True,
+        batch_size=1,
+    )  # contains embs
+    evaluate(bi_encoder, mention_map, dev_dataset, device, top_k=5)
     split_id2index = {m_id: i for i, m_id in enumerate(train_selected_keys)}
     # evaluate(bi_encoder, mention_map, dev_selected_keys, device, text_key=text_key)
     for i in range(epochs):
@@ -466,14 +414,9 @@ def train_centroid(
         bi_encoder.save_model(f"{save_path}/checkpoint-{i}/")
         print(f"saved model at {save_path}/checkpoint-{i}/")
         print(total_loss / len(train_selected_keys))
-        evaluate(
-            bi_encoder,
-            mention_map,
-            dev_selected_keys,
-            device,
-            text_key=text_key,
-            top_k=5,
-        )
+
+        evaluate(bi_encoder, mention_map, dev_dataset, device, top_k=5)
+
     return bi_encoder
 
 
@@ -492,7 +435,9 @@ def train(
 ):
     # Initialize the model and tokenizer
     if os.path.exists(model_name):
-        bi_encoder = load_model_from_path(BiEncoder, model_name, training=True, long=long)
+        bi_encoder = load_model_from_path(
+            BiEncoder, model_name, training=True, long=long
+        )
     else:
         bi_encoder = BiEncoder(model_name=model_name, long=long, is_training=True)
 
@@ -873,6 +818,7 @@ def train_biencoder(
     save_path: str = "model_save_path",
     learning_rate: float = 0.1,
     max_sentence_len: int = 150,
+    use_centroid: bool = False,
 ):
     # Load the training and developing data
     ensure_path(Path(save_path + "/a.l"))
@@ -899,33 +845,35 @@ def train_biencoder(
     ]
     # dev_selected_ids = train_split_ids
 
-    # Use arguments in the train function
-    trained_model = train(
-        mention_map,
-        train_split_ids,
-        dev_selected_ids,
-        model_name=model_name,
-        long=long,
-        text_key=text_key,
-        batch_size=batch_size,
-        epochs=epochs,
-        learning_rate=learning_rate,
-        save_path=save_path,
-        max_sentence_len=max_sentence_len,
-    )
-    # trained_model = train_centroid(
-    #     mention_map,
-    #     train_split_ids,
-    #     train_clusters,
-    #     dev_selected_ids,
-    #     model_name=model_name,
-    #     long=long,
-    #     text_key=text_key,
-    #     batch_size=batch_size,
-    #     epochs=epochs,
-    #     learning_rate=learning_rate,
-    #     save_path=save_path,
-    # )
+    if not use_centroid:
+        print("Running Triplet Loss")
+        trained_model = train(
+            mention_map,
+            train_split_ids,
+            dev_selected_ids,
+            model_name=model_name,
+            long=long,
+            text_key=text_key,
+            batch_size=batch_size,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            save_path=save_path,
+            max_sentence_len=max_sentence_len,
+        )
+    else:
+        trained_model = train_centroid(
+            mention_map,
+            train_split_ids,
+            train_clusters,
+            dev_selected_ids,
+            model_name=model_name,
+            long=long,
+            text_key=text_key,
+            batch_size=batch_size,
+            epochs=epochs,
+            learning_rate=learning_rate,
+            save_path=save_path,
+        )
 
 
 def train_ce(

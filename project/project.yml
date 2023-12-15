@@ -36,17 +36,7 @@ commands:
       - ${vars.ecb-mention-map}
       - ${vars.doc-sent-map}
 
-  - name: "augment-context"
-    help: "Augments the mention map with context from the document-sentence map."
-    script:
-      - python -m scripts.augment_ecb augment-context ${vars.ecb-mention-map} ${vars.doc-sent-map} --save-path ${vars.augment-context-path}
-
-  - name: "augment-candidates"
-    help: "Adds candidates to the mention map and groups mentions by label."
-    script:
-      - python -m scripts.augment_ecb augment-candidates ${vars.ecb-mention-map} --map-save-path ${vars.augment-candidates-path} --label-group-save-path ${vars.label-group-path}
-
-  - name: "train_biencoder"
+  - name: "train-biencoder-triplet"
     help: "Train the biencoder model on ECB+ corpus"
     script:
       - >- 
@@ -65,29 +55,29 @@ commands:
       - >-
         python -m scripts.knn save-knn-mention-pairs
         ./corpus/ecb/mention_map.pkl train 
-         ./outputs/models/biencoder/checkpoint-18/
+        /media/rehan/big_disk/models/bi_final/checkpoint-18/
         ./outputs/knn_distil_n_3/train_neighbors_3.pkl 
         ./outputs/mention_pairs/knn/train.pairs
         --ce-text-key neighbors_3 
-        --top-k 5 --force
+        --top-k 5
 
       - >-
         python -m scripts.knn save-knn-mention-pairs
         ./corpus/ecb/mention_map.pkl dev 
-         ./outputs/models/biencoder/checkpoint-18/
+        /media/rehan/big_disk/models/bi_final/checkpoint-18/
         ./outputs/knn_distil_n_3/dev_neighbors_2.pkl 
         ./outputs/mention_pairs/knn/dev.pairs
         --ce-text-key neighbors_3 
-        --top-k 5 --force
+        --top-k 5
 
       - >-
         python -m scripts.knn save-knn-mention-pairs
         ./corpus/ecb/mention_map.pkl debug_split
-         ./outputs/models/biencoder/checkpoint-18/
+         /media/rehan/big_disk/models/bi_final/checkpoint-18/
         ./outputs/knn_distil_n_3/debug_split_neighbors_2.pkl 
         ./outputs/mention_pairs/knn/debug_split.pairs 
         --ce-text-key neighbors_3 
-        --top-k 5 --force
+        --top-k 3 
 
       - >-
         python -m scripts.knn save-knn-mention-pairs
@@ -96,20 +86,21 @@ commands:
         ./outputs/knn_distil_n_3/test_neighbors_2.pkl 
         ./outputs/mention_pairs/knn/test.pairs 
         --ce-text-key neighbors_3 
-        --top-k 5 --force
+        --top-k 5 
 
   - name: "save-lh-pairs"
     help: "Save the mention pairs generated using LH"
     script:
-      - >-
-        python -m scripts.heuristic ./corpus/ecb_meta/
-        train lh 0.1 ./outputs/mention_pairs/ecb_meta/lh/train.pairs
-      - >-
-        python -m scripts.heuristic ./corpus/ecb_meta
-        dev lh 0.1 ./outputs/mention_pairs/ecb_meta/lh/dev.pairs
+
       - >- 
-        python -m scripts.heuristic ./corpus/ecb_meta/
-        debug_split lh 0.1 ./outputs/mention_pairs/ecb_meta/lh/debug_split.pairs
+        python -m scripts.heuristic ./corpus/ecb_sum_gpt4/
+        train lh 0.05 ./outputs/mention_pairs/ecb_sum_gpt4/lh_fn/train.pairs --add-fn
+      - >-
+        python -m scripts.heuristic ./corpus/ecb_sum_gpt4/
+        dev lh 0.05 ./outputs/mention_pairs/ecb_sum_gpt4/lh_fn/dev.pairs --add-fn
+      - >-
+        python -m scripts.heuristic ./corpus/ecb_sum_gpt4/
+        debug_split lh 0.05 ./outputs/mention_pairs/ecb_sum_gpt4/lh_fn/debug_split.pairs --add-fn
 
   - name: "save-lh-knn-pairs"
     help: "Merge the pairs from LH and KNN"
@@ -138,14 +129,14 @@ commands:
         ./corpus/ecb/mention_map.pkl dev dev 
         ./outputs/mention_pairs/bs/dev.pairs 
         --text-key marked_sentence 
-        --top-k 5 
+        --top-k 5
         --same-topic
       - >-
         python -m scripts.knn save-knn-pairs-bert-score 
         ./corpus/ecb/mention_map.pkl debug_split debug_split 
         ./outputs/mention_pairs/bs/debug_split.pairs 
         --text-key marked_sentence 
-        --top-k 5
+        --top-k 3
         --same-topic
 
       - >-
@@ -155,43 +146,6 @@ commands:
         --text-key marked_sentence 
         --top-k 5
         --same-topic
-  
-
-  - name: "knn-bert"
-    help: "Run the coreference pipeline with KNN filtering and BERT CrossEncoder"
-    script:
-      - >- 
-        python -m scripts.bert_pipeline run-knn-bert-pipeline 
-        corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/bert
-        /home/rehan/workspace/models/ce_models/ecb_small/ 
-        --knn-file ./outputs/knn/dev_map_100_neigh_3.pkl 
-        --top-k 10 
-        --ce-score-file ./outputs/ce_neigh_3.pkl
-        --ce-threshold 0.99
-        --ce-text-key neighbors_3
-
-  - name: "lh-bert"
-    help: "Run the coref pipeline with Lemma Heuristic and BERT CrossEncoder"
-    script:
-      - >-
-        python -m scripts.bert_pipeline
-        corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/ 
-        --ce-score-file ./outputs/ce_lh_dev.pkl 
-        --ce-threshold 0.0
-
-  - name: "knn-lh-bert"
-    help: "Run the coreference pipeline with KNN filtering and BERT CrossEncoder"
-    script:
-      - >-
-        python -m scripts.bert_pipeline run-knn-lh-3bert-pipeline 
-        corpus/ecb/ dev  /home/rehan/workspace/models/ce_models/ecb_small/bert
-        /home/rehan/workspace/models/ce_models/ecb_small/ 
-        --knn-file ./outputs/knn/dev_map_100_neigh_2.pkl 
-        --top-k 3 
-        --ce-score-file ./outputs/ce_lh_tp_neigh_2.pkl
-        --ce-threshold 0.0
-        --ce-text-key neighbors_2
-        --ce-force
 
   - name: "llm"
     help: "Run coreference pipeline with LLM reasoning"
@@ -205,38 +159,6 @@ commands:
         --save-folder outputs/llms/debug_sum_prec/lh
         --experiment-name amr
         --text-key marked_sentence
-
-  - name: "save-knn-pairs-ce"
-    help: "Save the mention pairs generated by knn"
-    script:
-      - >-
-        python -m scripts.knn save-knn-mention-pairs-ce
-        ./corpus/ecb/mention_map.pkl ./outputs/mention_pairs/knn/train.pairs
-        /media/rehan/big_disk/models/ce_lh/
-        ./outputs/knn_ce/train_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn_ce/train.pairs
-        --ce-text-key neighbors_2 
-        --top-k 5 --force
-
-      - >-
-        python -m scripts.knn save-knn-mention-pairs-ce
-        ./corpus/ecb/mention_map.pkl ./outputs/mention_pairs/knn/dev.pairs 
-        /media/rehan/big_disk/models/ce_lh/
-        ./outputs/knn_ce/dev_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn_ce/dev.pairs
-        --ce-text-key neighbors_2 
-        --top-k 5
-        --force
-
-      - >-
-        python -m scripts.knn save-knn-mention-pairs-ce
-        ./corpus/ecb/mention_map.pkl ./outputs/mention_pairs/knn/debug_split.pairs
-        /media/rehan/big_disk/models/ce_lh/
-        ./outputs/knn_ce/debug_split_neighbors_2.pkl 
-        ./outputs/mention_pairs/knn_ce/debug_split.pairs 
-        --ce-text-key neighbors_2 
-        --top-k 5
-        --force
 
   - name: "heuristics"
     help: "Calculate the heurisitcs baseline with CE"
@@ -293,3 +215,117 @@ commands:
         python -m scripts.heuristics_pipeline --oracle
           ./corpus/ecb/mention_map.pkl
           test ./outputs/mention_pairs/bs/test.pairs
+
+      - echo "-------- - LH+KNN - DEV-------------"
+      - >-
+        python -m scripts.heuristics_pipeline --oracle
+          ./corpus/ecb/mention_map.pkl
+          dev ./outputs/mention_pairs/lh_knn/dev.pairs
+      - echo "-------- - LH+KNN - DEBUG-------------"
+      - >-
+        python -m scripts.heuristics_pipeline --oracle
+          ./corpus/ecb/mention_map.pkl
+          debug_split ./outputs/mention_pairs/lh_knn/debug_split.pairs
+
+      - echo "-------- - LH+KNN - TEST-------------"
+      - >-
+        python -m scripts.heuristics_pipeline --oracle
+          ./corpus/ecb/mention_map.pkl
+          test ./outputs/mention_pairs/lh_knn/test.pairs
+
+      - echo "-------- - LH+KNN+BS - DEV-------------"
+      - >-
+        python -m scripts.heuristics_pipeline --oracle
+          ./corpus/ecb/mention_map.pkl
+          dev ./outputs/mention_pairs/lh_knn_bs/dev.pairs
+      - echo "-------- - LH+KNN+BS - DEBUG-------------"
+      - >-
+        python -m scripts.heuristics_pipeline --oracle
+          ./corpus/ecb/mention_map.pkl
+          debug_split ./outputs/mention_pairs/lh_knn_bs/debug_split.pairs
+
+      - echo "-------- - LH+KNN+BS - TEST-------------"
+      - >-
+        python -m scripts.heuristics_pipeline --oracle
+          ./corpus/ecb/mention_map.pkl
+          test ./outputs/mention_pairs/lh_knn_bs/test.pairs
+
+  - name: "merge-lh-knn-bs"
+    help: "Merge the mention pairs generated by LH, KNN and BERTScore"
+    script:
+      - >-
+        python -m scripts.knn merge-mention-pairs 
+          ./outputs/mention_pairs/lh/debug_split.pairs 
+          ./outputs/mention_pairs/knn/debug_split.pairs 
+          ./outputs/mention_pairs/lh_knn/debug_split.pairs
+
+      - >-
+        python -m scripts.knn merge-mention-pairs 
+          ./outputs/mention_pairs/lh/test.pairs 
+          ./outputs/mention_pairs/knn/test.pairs 
+          ./outputs/mention_pairs/lh_knn/test.pairs
+
+      - >-
+        python -m scripts.knn merge-mention-pairs 
+          ./outputs/mention_pairs/lh/dev.pairs 
+          ./outputs/mention_pairs/knn/dev.pairs 
+          ./outputs/mention_pairs/lh_knn/dev.pairs
+
+      - >-
+        python -m scripts.knn merge-mention-pairs 
+          ./outputs/mention_pairs/lh_knn/debug_split.pairs 
+          ./outputs/mention_pairs/bs/debug_split.pairs 
+          ./outputs/mention_pairs/lh_knn_bs/debug_split.pairs
+
+      - >-
+        python -m scripts.knn merge-mention-pairs 
+          ./outputs/mention_pairs/lh_knn/test.pairs 
+          ./outputs/mention_pairs/bs/test.pairs 
+          ./outputs/mention_pairs/lh_knn_bs/test.pairs
+
+      - >-
+        python -m scripts.knn merge-mention-pairs 
+          ./outputs/mention_pairs/lh_knn/dev.pairs 
+          ./outputs/mention_pairs/bs/dev.pairs 
+          ./outputs/mention_pairs/lh_knn_bs/dev.pairs
+
+  - name: "train-crossencoder"
+    help: "Train the crossencoder by providing train and dev mention pairs"
+    script:
+      - >-
+        python -m scripts.bert.train train-cross-encoder 
+        ./corpus/ecb_sum_gpt4/ 
+        ./outputs/mention_pairs/ecb_sum_gpt4/lh_fn/train.pairs 
+        ./outputs/mention_pairs/ecb_sum_gpt4/lh_fn/dev.pairs 
+        /media/rehan/big_disk/models/ce/lh_fn_summ_roberta-base
+        --model-name roberta-base 
+        --text-key marked_sentence
+        --batch-size 64 
+        --epochs 50
+        --max-sentence-len 256
+
+  - name: "lh-meta-test"
+    help: "Run the heuristic results on ecb meta"
+    script:
+     - echo "---------------TEST------------------"
+     - >-
+       python -m scripts.heuristics_pipeline 
+          ./corpus/ecb_meta/mention_map.pkl
+          test ./outputs/mention_pairs/ecb_meta/lh/test.pairs
+     - echo "---------------DEBUG------------------"
+     - >-
+       python -m scripts.heuristics_pipeline 
+                 ./corpus/ecb_meta/mention_map.pkl
+                 debug_split ./outputs/mention_pairs/ecb_meta/lh/debug_split.pairs
+
+  - name: "bert-lh-knn-bs"
+    help: "Run the BERT pipeline on trained model"
+    script:
+      - >-
+        python -m scripts.bert_pipeline ./corpus/ecb/ 
+        debug_split ./outputs/mention_pairs/lh_knn_bs/debug_split.pairs
+        /media/rehan/big_disk/models/ce/lh_fn_knn_bs_rob-large/scorer/chk_6/ 
+        --text-key neighbors_3 
+        --max-sentence-len 
+        512 --ce-score-file 
+        ./outputs/final_scores_ce/debug_lh_knn_bs.pkl

@@ -42,7 +42,7 @@ def get_scores(mention_map, split, mention_pairs, oracle=False):
 def run_mp_pipeline(mention_map_file, split, mention_pairs_file, oracle: bool = False):
     mention_map = pickle.load(open(mention_map_file, "rb"))
     mention_pairs = pickle.load(open(mention_pairs_file, "rb"))
-    print(get_scores(mention_map, split, mention_pairs, oracle))
+    get_scores(mention_map, split, mention_pairs, oracle)
 
 
 if __name__ == "__main__":

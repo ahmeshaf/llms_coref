@@ -59,12 +59,12 @@ def process_response(id_, response):
         return None
 
 
-summ_cache_file = pickle.load(open("/home/rehan/Downloads/gpt-4-1106-preview_sum_cache.pkl", "rb"))
+summ_cache_file = pickle.load(open("../corpus/ecb_sum_gpt4/gpt-4-1106-preview_sum_cache_full.pkl", "rb"))
 
 mention_map = pickle.load(open("../corpus/ecb/mention_map.pkl", "rb"))
 
 nlp = spacy.load("en_core_web_lg")
-
+print(len(summ_cache_file))
 for m_id, response in summ_cache_file.items():
     mention = mention_map[m_id]
     predict_ = response["predict"].strip()
@@ -75,13 +75,20 @@ for m_id, response in summ_cache_file.items():
         predict_ = matches.strip()
     try:
         json_res = json.loads(predict_)
+        summary = json_res["Event Summary in One Sentence with Marked Trigger"]
     except Exception as e:
-        json_res = process_response(m_id, predict_)
+        lines = predict_.split("\n")
+        summary = ""
+        for line in lines:
+            if "Event Summary in One Sentence with Marked Trigger" in line:
+                summary = line.split(":")[-1].strip(' ",')
 
-    trigger = json_res["Trigger"]
-    marked_sentence = json_res["Event Summary in One Sentence with Marked Trigger"]
-    marked_sentence = marked_sentence.replace("<m>", "").replace("<m>", "").replace("</m>", "").replace("</m>", "")
-    mention["marked_sentence"] = f"<m> {trigger} </m>" + marked_sentence
+    if summary == "":
+        raise Exception
+    # print(summary)
+    clean_sentence = summary.replace("<m>", "").replace("<m>", "").replace("</m>", "").replace("</m>", "")
+    clean_sentence.replace("/wiki/", " /wiki/ ")
+    mention["marked_sentence"] = mention["marked_sentence"] + " <s> " + clean_sentence
 
     # mention["sentence"] = marked_sentence
     # mention["mention_text"] = trigger
@@ -115,3 +122,11 @@ for m_id, response in summ_cache_file.items():
 
 pickle.dump(mention_map, open("../corpus/ecb_sum_gpt4/mention_map.pkl", "wb"))
 
+for mention in mention_map.values():
+    marked_sentence = mention["marked_sentence"]
+    m = "<m>"
+    m_e = "</m>"
+    assert m in marked_sentence
+    assert m_e in marked_sentence
+    assert len(marked_sentence.split(m)) == 2
+    assert len(marked_sentence.split(m_e)) == 2
