@@ -309,3 +309,16 @@ def get_split_ids(mention_map, split):
         for m_id, men in mention_map.items()
         if men["men_type"] == "evt" and men["split"] == split
     ]
+    
+def filter_topic_aligned_cross_doc_pairs(mention_pairs: List, mention_map: Dict):
+    """
+    Filters mention pairs to retain only those that are in the same topic but in different documents and sentences.
+    """
+    return [
+        (m1, m2)
+        for m1, m2 in mention_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"] and
+           (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"]) !=
+           (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
+    
