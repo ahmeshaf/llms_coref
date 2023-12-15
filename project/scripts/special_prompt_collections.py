@@ -92,6 +92,39 @@ arg_prompt = PromptTemplate(
     input_variables=['event1', 'event2'],
 )
 
+# Two Shot
+twoshot_template="""
+You are en expert Event Coreference Resolution System. I will provide one coreferent event pair and one non-coreferent event pair.
+Your task is to:
+First, deduce why or how coreferent event pair are coreferent. And, why or how non-coreferent event pair are not coreferent.
+Second, using your deductive reasoning, identify if Event 1 and Event 2 below are coreferent or not.
+
+Make sure your output is in JSON format as follows::
+{{
+    Coreferent event pair rationale: ""
+    Non-coreferent event pair rationale: ""
+    Event 1 Trigger: Text in Event 1 between <m> and </m>
+    Event 2 Trigger: Text in Event 2 between <m> and </m>
+    Event 1 and 2 deduction: Your explanation for the coreference or non-coreference relation between Event 1 and Event 2
+    Answer: True if Event 1 and Event 2 are the same, else False
+}}
+        
+Now predict for the following two events with the :
+Coreferent Pair:
+Coreferent Event 1: {coreferent1}
+Coreferent Event 2: {coreferent2}
+Non-coreferent Pair:
+Non-coreferent Event 1: {non_coreferent1}
+Non-coreferent Event 2: {non_coreferent2}
+Event 1 = {event_1}
+Event 2 = {event_2}
+"""
+twoshot_prompt = PromptTemplate(
+    template=twoshot_template,
+    input_variables=['event_1', 'event_2', 'coreferent1', 'coreferent2', 'non_coreferent1', 'non_coreferent2'],
+)
+
+
 # Adversarial
 adv_template="""
 Paraphrase this Sentence from a news article by using figurative language to describe the events in the Sentence:
