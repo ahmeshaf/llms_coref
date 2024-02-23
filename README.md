@@ -18,14 +18,21 @@ Modeling code adapted from:
 pip install -r requirements.txt
 ```
 
-### faiss installation
+Spacy model:
 ```shell
+python -m spacy download en_core_web_lg
+```
 
+### Change Directory to project
+```shell
+cd project
 ```
 
 
-## Getting Started
 
+## Getting Started with ECB+ Corpus
+
+This scripts downloads and processes the ECB+ corpus into a pkl dictionary which we call `mention_map.pkl`
 ```sh
 python -m spacy project assets
 ```
