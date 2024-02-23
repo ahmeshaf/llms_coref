@@ -56,7 +56,9 @@ python -m scripts.llm_pipeline corpus/ecb/ debug_split --experiment-name meta_si
 ```
 Generate corpus file:
 ```shell
-python -m spacy project run llm-pipeline ...
+python scripts/merge_meta.py ./outputs/meta_single/merged.pkl ./outputs/meta_single/gpt-4*.pkl
+python -m scripts.parse_meta save-doc-sent-map ./outputs/meta_single/merged.pkl ./corpus/ecb/doc_sent_map.pkl ./corpus/ecb_meta_single/doc_sent_map.pkl
+python -m scripts.parse_meta parse ./outputs/meta_single/merged.pkl  ./corpus/ecb_meta_single/doc_sent_map.pkl ./corpus/ecb/mention_map.pkl ./corpus/ecb_meta_single/mention_map.pkl
 ```
 
 ### ECB+META_m
@@ -71,7 +73,10 @@ python -m scripts.llm_pipeline corpus/ecb/ debug_split --experiment-name meta_mu
 ```
 Generate corpus file:
 ```shell
-python -m spacy project run llm-pipeline ...
+python scripts/merge_meta.py ./outputs/meta_multi/merged.pkl ./outputs/meta_multi/gpt-4*.pkl
+python -m scripts.parse_meta save-doc-sent-map ./outputs/meta_multi/merged.pkl ./corpus/ecb/doc_sent_map.pkl ./corpus/ecb_meta_multi/doc_sent_map.pkl
+python -m scripts.parse_meta parse ./outputs/meta_multi/merged.pkl  ./corpus/ecb/ecb_single/doc_sent_map.pkl ./corpus/ecb/mention_map.pkl ./corpus/ecb_meta_multi/mention_map.pkl
+
 ```
 
 ## BERT Pipelines
