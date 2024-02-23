@@ -9,5 +9,6 @@ transformers
 bs4
 lxml
 typer
-faiss-cpu
+faiss-gpu
+torchvision
 git+https://github.com/ns-moosavi/coval.git
