@@ -32,13 +32,46 @@ cd project
 
 ## Getting Started with ECB+ Corpus
 
-This scripts downloads and processes the ECB+ corpus into a pkl dictionary which we call `mention_map.pkl`
+These scripts download and process the ECB+ corpus into a pkl corpus file which we call `mention_map.pkl`
 ```sh
 python -m spacy project assets
 ```
 
 ```sh
 python -m spacy project run ecb-setup
+```
+
+This will create the corpus file at `corpus/ecb/mention_map.pkl`
+
+## Generate ECB+META Corpora
+### ECB+META_1
+Run the following scripts to generate the corpus file for the single-word metaphoric transformation of ECB+ at: 
+`corpus/ecb_meta_1/mention_map.pkl`
+
+Run GPT-4 pipeline:
+```shell
+python -m scripts.llm_pipeline corpus/ecb/ test  --experiment-name meta_single
+python -m scripts.llm_pipeline corpus/ecb/ dev --experiment-name meta_single
+python -m scripts.llm_pipeline corpus/ecb/ debug_split --experiment-name meta_single
+```
+Generate corpus file:
+```shell
+python -m spacy project run llm-pipeline ...
+```
+
+### ECB+META_m
+Run the following scripts to generate the corpus file for the multi-word metaphoric transformation of ECB+ at: 
+`corpus/ecb_meta_m/mention_map.pkl`
+
+Run GPT-4 pipeline:
+```shell
+python -m scripts.llm_pipeline corpus/ecb/ test  --experiment-name meta_multi
+python -m scripts.llm_pipeline corpus/ecb/ dev --experiment-name meta_multi
+python -m scripts.llm_pipeline corpus/ecb/ debug_split --experiment-name meta_multi
+```
+Generate corpus file:
+```shell
+python -m spacy project run llm-pipeline ...
 ```
 
 ## BERT Pipelines
