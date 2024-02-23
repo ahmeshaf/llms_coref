@@ -28,6 +28,12 @@ python -m spacy download en_core_web_lg
 cd project
 ```
 
+### OpenAI API Key Setup
+The OpenAI API Key can be set up by the below line:
+```shell
+export OPENAI_API_KEY=<Your-OpenAI-API-Key>
+```
+
 
 
 ## Getting Started with ECB+ Corpus
