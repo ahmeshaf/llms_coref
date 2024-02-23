@@ -10,6 +10,7 @@ vars:
   augment-candidates-path: corpus/ecb/mention_map_with_candidates.pkl
   label-group-path: corpus/ecb/label_group.pkl
   model-save-path: outputs/models/biencoder/
+  cross-encoder-lh-knn: outputs/models/...
 
 directories:
   - "assets"
