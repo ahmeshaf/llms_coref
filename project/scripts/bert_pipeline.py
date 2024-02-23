@@ -42,7 +42,7 @@ def predict_trained_model(
     max_sentence_len=1024,
     long=True,
     device="cuda:0",
-    batch_size=128,
+    batch_size=64,
 ):
     device = torch.device(device)
     device_ids = list(range(1))
@@ -112,12 +112,17 @@ def run_ce(
     ce_threshold: float = 0.5,
     ce_force: bool = False,
 ):
+    print(len(mention_pairs))
     # generate the intermediate ce_scores to be used for clustering
     if ce_score_file.exists() and not ce_force:
         mention_pairs, ce_scores_ab, ce_scores_ba = pickle.load(
             open(ce_score_file, "rb")
         )
+        # mention_pairs = list(set(mention_pairs))
+        print(len(mention_pairs))
     else:
+        mention_pairs = list(set(mention_pairs))
+        print(len(mention_pairs))
         ce_scores_ab, ce_scores_ba = get_ce_scores(
             mention_map,
             mention_pairs,
@@ -151,7 +156,7 @@ def run_ce(
 
 @app.command()
 def run_ce_mention_pairs(
-    dataset_folder: str,
+    mention_map_path: str,
     split: str,
     mention_pairs_path: Path,
     ce_folder,
@@ -165,7 +170,7 @@ def run_ce_mention_pairs(
     predicted_topic: Path = None,
 ):
     ensure_path(ce_score_file)
-    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+    mention_map = pickle.load(open(mention_map_path, "rb"))
 
     if predicted_topic and predicted_topic.exists():
         print("Using Predicted topics for Test")

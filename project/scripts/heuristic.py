@@ -1,5 +1,7 @@
 import os.path
 import pickle
+import re
+
 import typer
 
 from pathlib import Path
@@ -41,9 +43,19 @@ def get_mention_pair_similarity_lemma2(
         men_text1 = men_map1["mention_text"].lower()
         men_text2 = men_map2["mention_text"].lower()
 
+        marked_sentence1 = men_map1["marked_sentence"]
+        marked_sentence2 = men_map2["marked_sentence"]
+
+        wikis1 = set(re.findall(r"/wiki/[^/\s]+", marked_sentence1))
+        wikis2 = set(re.findall(r"/wiki/[^/\s]+", marked_sentence2))
+
         def jc(arr1, arr2):
+            if len(set.union(arr1, arr2)) == 0:
+                return 0
             return len(set.intersection(arr1, arr2)) / len(set.union(arr1, arr2))
             # return len(set.intersection(arr1, arr2))
+
+        wiki_inter = jc(wikis1, wikis2)
 
         doc_id1 = men_map1["doc_id"]
         sentence_tokens1 = [tok for tok in men_map1["sentence_tokens"]]
@@ -65,7 +77,8 @@ def get_mention_pair_similarity_lemma2(
             pair_tuple = (lemma1, lemma2)
 
         similarities.append(
-            (lemma_sim or pair_tuple in relations) and sent_sim > threshold
+            ((lemma_sim or pair_tuple in relations) or wiki_inter==1.)
+            and sent_sim > threshold
         )
 
     return np.array(similarities)
@@ -97,9 +110,7 @@ def get_mention_pair_similarity_lemma(
         )
         pair_tuple = tuple(sorted([lemma1, lemma2]))
 
-        similarities.append(
-            (lemma_sim or pair_tuple in syn_lemma_pairs) * sent_sim
-        )
+        similarities.append((lemma_sim or pair_tuple in syn_lemma_pairs) * sent_sim)
 
     return np.array(similarities)
 
@@ -119,6 +130,7 @@ def get_all_mention_pairs_labels(mention_map):
     for split in [TRAIN, DEV, TEST]:
         split_pairs_labels = get_all_mention_pairs_labels_split(mention_map, split)
         all_mention_pairs_labels.append(split_pairs_labels)
+
     return all_mention_pairs_labels
 
 
@@ -142,7 +154,6 @@ def generate_tp_fp_tn_fn(
     mention_map,
     syn_lemma_pairs,
     threshold=0.05,
-    doc_sent_map=None,
 ):
     similarities = get_mention_pair_similarity_lemma2(
         mention_pairs, mention_map, syn_lemma_pairs, threshold=threshold
@@ -195,8 +206,8 @@ def generate_tp_fp_tn_fn(
     fns_trans = [mention_pairs[i] for i in fns_trans[0]]
 
     print("\nAfter transitive closure\ntrue positives:", len(tps_trans))
-    print("false positives:", len(fps_trans))
-    print("true negatives:", len(tns_trans))
+    # print("false positives:", len(fps_trans))
+    # print("true negatives:", len(tns_trans))
     print("false negatives:", len(fns_trans))
     return (tps, fps, tns, fns), (tps_trans, fps_trans, tns_trans, fns_trans)
 
@@ -335,9 +346,13 @@ def get_lh_pairs(mention_map, split, heu="lh", lh_threshold=0.15, lemma_pairs=No
     evt_mention_map = {
         m_id: m for m_id, m in mention_map.items() if m["men_type"] == "evt"
     }
+
     split_mention_pairs_labels = get_all_mention_pairs_labels_split(
         evt_mention_map, split
     )
+
+    if len(split_mention_pairs_labels) == 0:
+        return [], []
 
     if heu == "lh":
         train_mention_pairs_labels = get_all_mention_pairs_labels_split(
@@ -370,28 +385,44 @@ def get_lh_pairs(mention_map, split, heu="lh", lh_threshold=0.15, lemma_pairs=No
 
 @app.command()
 def save_lh_pairs(
-    dataset_folder: str,
-    split: str,
+    mention_map_file: str,
     heu: str,
     lh_threshold: float,
-    pairs_out_file: Path,
-    add_fn: bool = False,
+    pairs_out_dir: Path,
 ):
-    ensure_path(pairs_out_file)
-    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
-    m_pairs, _ = get_lh_pairs(mention_map, split, heu=heu, lh_threshold=lh_threshold)
+    # lh_threshold = float(lh_threshold)
+    mention_map = pickle.load(open(mention_map_file, "rb"))
+    for split in ["dev", "debug_split", "test"]:
+        pairs_out_file = pairs_out_dir / f"{split}.pairs"
+        ensure_path(pairs_out_file)
 
-    # use only the positive predictions
-    tp_fp_fn = m_pairs[0] + m_pairs[1]
-    if add_fn:
-        tp_fp_fn += m_pairs[-1]
+        if heu == "lh_fn":
+            add_fn = True
+            heu = "lh"
+        else:
+            add_fn = False
+        m_pairs, _ = get_lh_pairs(
+            mention_map, split, heu=heu, lh_threshold=lh_threshold
+        )
+        if len(m_pairs) == 0:
+            return
 
-    mention_pairs = set()
-    for m1, m2 in tp_fp_fn:
-        p = tuple(sorted((m1, m2)))
-        mention_pairs.add(p)
-    print(len(mention_pairs))
-    pickle.dump(mention_pairs, open(pairs_out_file, "wb"))
+        # use only the positive predictions
+        tp_fp_fn = m_pairs[0] + m_pairs[1]
+        if add_fn:
+            tp_fp_fn += m_pairs[-1]
+            print("pos :", len(m_pairs[0] + m_pairs[-1]))
+        else:
+            print("pos: ", len(m_pairs[0]))
+        print("neg: ", len(m_pairs[1]))
+
+        mention_pairs = set()
+        for m1, m2 in tp_fp_fn:
+            p = tuple(sorted((m1, m2)))
+            mention_pairs.add(p)
+        print(f"{split} - mention pairs", len(mention_pairs))
+        pickle.dump(mention_pairs, open(pairs_out_file, "wb"))
+        print(f"saved {split} {str(pairs_out_file)}")
 
 
 if __name__ == "__main__":

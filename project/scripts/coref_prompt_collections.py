@@ -25,11 +25,11 @@ baseline_prompt = PromptTemplate(
 
 # zero-shot cot template
 zeroshot_template = """
-You are en expert Event Coreference Resolution System. I will provide two sentences with marked events. Your task is to identify if they both refer to the same event. If they are coreferent, please return "True", otherwise write "False".
+You are en expert Event Coreference Resolution System. I will provide two sentences with marked event triggers (phrase between <m> and </m>). Your task is to identify if they both refer to the same event. If they are coreferent, please return "True", otherwise write "False".
 {format_instructions}
 Event1: {event1}
 Event2: {event2}
-Let's think step by step.
+First extract the triggers for each event. Then think step by step.
 Your reasoning:
 Your answer:
 """
@@ -52,7 +52,7 @@ zeroshot_prompt = PromptTemplate(
 )
 # two shot cot 
 twoshot_template = """
-You are en expert Event Coreference Resolution System. I will provide two sentences with marked events. Your task is to identify if they both refer to the same event. If they are coreferent, please return "True", otherwise write "False".
+You are en expert Event Coreference Resolution System. I will provide two sentences with marked event. Your task is to identify if they both refer to the same event. If they are coreferent, please return "True", otherwise write "False".
 {format_instructions}
 
 Event1: TRIAL DATE <m> SET </m> FOR MAN ACCUSED OF DOUBLE MURDER IN MILLOM

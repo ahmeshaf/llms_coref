@@ -28,7 +28,7 @@ from .coref_prompt_collections import (
     twoshot_prompt,
     zeroshot_prompt,
 )
-from .helper import ensure_dir, ensure_path, evaluate
+from .helper import ensure_dir, ensure_path, evaluate, filter_topic_aligned_cross_doc_pairs
 from .special_prompt_collections import (
     adv_prompt,
     adv_prompt_v2,
@@ -211,13 +211,15 @@ def llm_coref(
         event1_data = mention_map.get(event1_id)
         event2_data = mention_map.get(event2_id)
 
+        true_label = str(event1_data["gold_cluster"] == event2_data["gold_cluster"])
+
         if event1_data is None or event2_data is None:
             continue
 
         event1_text = get_context(event1_data, text_key)
         event2_text = get_context(event2_data, text_key)
 
-        # format_prompt = chain.prompt.format_prompt(event1=event1_text, event2=event2_text)
+        format_prompt = chain.prompt.format_prompt(event1=event1_text, event2=event2_text)
 
         if evt_pair in raw_cache:
             predict = raw_cache[evt_pair]["predict"]
@@ -234,6 +236,10 @@ def llm_coref(
                 pickle.dump(raw_cache, open(cache_file, "wb"))
         try:
             predict_dict = parser.parse(predict)
+            print("++============ PROMPT =============+++")
+            print(format_prompt.text)
+            print("\n\n================ RESPONSE ===================","\n\n", str(predict))
+            print("\n\n================ True Label ===================", "\n\n", str(true_label),"\n\n")
 
         except Exception as e:
             print(e)
@@ -277,9 +283,12 @@ def llm_coref(
     other_count = 0
     for r in result_list:
         if isinstance(r, str):
-            if r == "True":
+            if r.lower() == "true":
                 r = 1
+            elif r.lower() == "false":
+                r = 0
             else:
+                print("Unknow String: ", r)
                 r = 0
             str_count += 1
         elif isinstance(r, bool):
@@ -619,7 +628,7 @@ def llm_two_shot(
         event1_text = get_context(event1_data, text_key)
         event2_text = get_context(event2_data, text_key)
 
-        # format_prompt = chain.prompt.format_prompt(event1=event1_text, event2=event2_text)
+        format_prompt = chain.prompt.format_prompt(event1=event1_text, event2=event2_text)
 
         if evt_pair in raw_cache:
             predict = raw_cache[evt_pair]["predict"]
@@ -849,7 +858,7 @@ def run_llm_pipeline(
     experiment_name: str = "baseline",
     text_key: str = "marked_doc",
 ):
-    ensure_dir(gpt_raw_cache_dir)
+    ensure_dir(gpt_raw_cache_dir / f"a.l")
     # Set up openai api key
     _ = load_dotenv(find_dotenv())  # Read local .env file
     openai.api_key = os.environ["OPENAI_API_KEY"]
@@ -867,11 +876,20 @@ def run_llm_pipeline(
     mention_pairs = sorted(pickle.load(open(mention_pairs_path, "rb")))
     mention_pairs = [tuple(sorted(p)) for p in mention_pairs]
 
+    # Filter out same sentence
+    print("before filtering: ", len(mention_pairs))
+    mention_pairs = filter_topic_aligned_cross_doc_pairs(mention_pairs, mention_map)
+    print("after filtering: ", len(mention_pairs))
+
     # debug
     if debug:
         print("Total mention ids: ", len(split_mention_ids))
         print("Total mention pairs: ", len(mention_pairs))
-        mention_pairs = mention_pairs[:5]
+        random.shuffle(mention_pairs)
+        # mention_pairs = mention_pairs[:5]
+        pos_pairs = [(m1, m2) for m1, m2 in mention_pairs if mention_map[m1]["gold_cluster"] == mention_map[m2]["gold_cluster"]]
+        neg_pairs = [(m1, m2) for m1, m2 in mention_pairs if mention_map[m1]["gold_cluster"] != mention_map[m2]["gold_cluster"]]
+        mention_pairs = pos_pairs[:5] + neg_pairs[:5]
 
     prompt, parser = prompt_and_parser_factory(experiment_name)
 
@@ -901,8 +919,8 @@ def run_llm_pipeline(
     )
 
     # Debug
-    if debug:
-        print(result_dict)
+    # if debug:
+    #     print(result_dict)
 
     print(scores)
 
@@ -1075,8 +1093,8 @@ def run_llm_sum_pipeline(
         cache_dir=gpt_raw_cache_dir,
     )
 
-    if debug:
-        print(result_dict)
+    # if debug:
+        # print(result_dict)
 
 
 if __name__ == "__main__":

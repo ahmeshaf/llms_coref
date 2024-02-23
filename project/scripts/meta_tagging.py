@@ -9,6 +9,7 @@ import json
 import pickle
 import prodigy
 import spacy
+from tqdm import tqdm
 
 OLD_MARKED = """
 <style>
@@ -157,15 +158,15 @@ def meta_manual(
         "config": config,
     }
 
+
 def make_json():
     nlp = spacy.load("en_core_web_sm")
 
     mention_map_old = pickle.load(open("../corpus/ecb/mention_map.pkl", "rb"))
 
-    mention_map_meta = pickle.load(open("../corpus/ecb_meta/mention_map.pkl", "rb"))
+    mention_map_meta = pickle.load(open("../corpus/ecb_meta_m/mention_map.pkl", "rb"))
 
     meta2task = {}
-
 
     def process_sentence(sentence):
         # Remove spaces immediately after <m> and before </m>
@@ -183,10 +184,9 @@ def make_json():
         # Return the new sentence and the start and end indices of the marked phrase
         return sentence_without_markers, start_index, end_index
 
-
     tasks = []
 
-    for m_id, meta_men in mention_map_meta.items():
+    for m_id, meta_men in tqdm(list(mention_map_meta.items())):
         old_men = mention_map_old[m_id]
         marked_sentence = meta_men["marked_sentence"]
         clean_sentence, s, e = process_sentence(marked_sentence)
@@ -218,7 +218,9 @@ def make_json():
         task["spans"] = spans
         tasks.append(task)
 
-
     print(len(tasks))
 
-    json.dump(tasks, open("../corpus/ecb_meta/tasks.json", "w"))
+    json.dump(tasks, open("../corpus/ecb_meta_m/tasks.json", "w"), indent=1)
+
+
+# make_json()

@@ -3,8 +3,8 @@ description: ""
 
 vars:
   gpu: 0
-  ecb-dir: corpus/ecb
-  ecb-mention-map: corpus/ecb/mention_map.pkl
+  ecb-dir: corpus/ecb_meta
+  ecb-mention-map: corpus/ecb_meta/mention_map_single.pkl
   doc-sent-map: corpus/ecb/doc_sent_map.pkl
   augment-context-path: corpus/ecb/mention_map_with_context.pkl
   augment-candidates-path: corpus/ecb/mention_map_with_candidates.pkl
@@ -329,3 +329,15 @@ commands:
         --max-sentence-len 
         512 --ce-score-file 
         ./outputs/final_scores_ce/debug_lh_knn_bs.pkl
+
+  - name: "ce-lh-meta"
+    help: "Run the BERT pipeline on trained model"
+    script:
+      - >-
+        python -m scripts.bert_pipeline ./corpus/ecb_meta/ 
+        debug_split ./outputs/mention_pairs/ecb_meta/lh/debug_split.pairs
+        ${vars.cross-encoder-lh-knn}
+        --text-key marked_sentence
+        --max-sentence-len 150 
+        --ce-score-file ./outputs/results/ce/ce_lh_meta_debug_split.pkl
+        --ce-force

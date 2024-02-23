@@ -3,9 +3,14 @@ import pickle
 import json
 import re
 from collections import Counter
-
+import nltk
+from nltk.corpus import stopwords
 import spacy
 
+nltk.download("stopwords")
+stemmer = nltk.PorterStemmer()
+eng_stops = set(stopwords.words("english"))
+print(stemmer.stem("Hello"))
 
 mention_map = pickle.load(open("../corpus/ecb_meta/mention_map.pkl", "rb"))
 #
@@ -89,7 +94,7 @@ for m_id, response in summ_cache_file.items():
     clean_sentence = summary.replace("<m>", "").replace("<m>", "").replace("</m>", "").replace("</m>", "")
     clean_sentence.replace("/wiki/", " /wiki/ ")
     mention["marked_sentence"] = mention["marked_sentence"] + " <s> " + clean_sentence
-
+    # mention["sentence_tokens"] = [stemmer.stem(word) for word in clean_sentence.split() if word.lower() not in eng_stops]
     # mention["sentence"] = marked_sentence
     # mention["mention_text"] = trigger
     # mention["lemma"] = nlp(trigger)[:].root.lemma_

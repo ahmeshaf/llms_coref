@@ -1053,7 +1053,11 @@ def train_cross_encoder(
         )
 
     print(len(train_pairs))
+    print("Train pos labels", np.sum(train_labels))
+    print("Train neg labels", sum(1 - np.array(train_labels)))
     print(len(dev_pairs))
+    print("Dev pos labels", np.sum(dev_labels))
+    print("Dev neg labels", sum(1 - np.array(dev_labels)))
 
     parallel_model = torch.nn.DataParallel(scorer_module, device_ids=device_ids)
     parallel_model.module.to(device)

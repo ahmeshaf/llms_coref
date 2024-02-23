@@ -550,7 +550,9 @@ def get_two_shot_examples_lh(
     all_pos_pairs = []
     all_neg_pairs = []
 
-    for pair, lemma_pair, label in zip(store_mention_pairs, store_lemma_pairs, store_labels):
+    for pair, lemma_pair, label in zip(
+        store_mention_pairs, store_lemma_pairs, store_labels
+    ):
         if label:
             pos_store[lemma_pair[0]].add(pair)
             pos_store[lemma_pair[1]].add(pair)
@@ -567,6 +569,7 @@ def get_two_shot_examples_lh(
     def print_pair(tuple_id, mention_map):
         print(mention_map[tuple_id[0]]["marked_sentence"])
         print(mention_map[tuple_id[1]]["marked_sentence"])
+
     not_found = set()
     for m1, m2 in tqdm(retrieve_mention_pairs, desc="Retrieving"):
         # print("Target Mention")
@@ -612,119 +615,145 @@ def get_two_shot_examples_lh(
             neg_pairs = all_neg_pairs
             not_found.add((m1, m2))
 
-        pos_similarities = get_similarities(combined_sentence, lemma_pair, pos_pairs, mention_map)
-        neg_similarities = get_similarities(combined_sentence, lemma_pair, neg_pairs, mention_map)
+        pos_similarities = get_similarities(
+            combined_sentence, lemma_pair, pos_pairs, mention_map
+        )
+        neg_similarities = get_similarities(
+            combined_sentence, lemma_pair, neg_pairs, mention_map
+        )
 
-        pos_p_sims = sorted(zip(pos_pairs, pos_similarities), key=lambda x: x[1], reverse=True)
-        neg_p_pairs = sorted(zip(neg_pairs, neg_similarities), key=lambda x: x[1], reverse=True)
+        pos_p_sims = sorted(
+            zip(pos_pairs, pos_similarities), key=lambda x: x[1], reverse=True
+        )
+        neg_p_pairs = sorted(
+            zip(neg_pairs, neg_similarities), key=lambda x: x[1], reverse=True
+        )
 
         best_pos = pos_p_sims[0][0]
         best_neg = neg_p_pairs[0][0]
-        mention_pair2twoshot[(m1, m2)] = {"pos": best_pos, "neg":  best_neg}
+        mention_pair2twoshot[(m1, m2)] = {"pos": best_pos, "neg": best_neg}
     print("not found pairs", len(not_found))
     pickle.dump(mention_pair2twoshot, open(output_path, "wb"))
 
 
-
 @app.command()
-def save_knn_pairs_bert_score(
+def save_knn_pairs_bert_score_all(
     mention_map_file: Path,
-    store_split: str,
-    retrieve_split: str,
-    pairs_output_file: Path,
+    pairs_output_dir: Path,
     text_key: str = "marked_sentence",
     batch_size: int = 64,
     top_k: int = 5,
     big_batch_size: int = 100000,
     same_topic: bool = False,
 ):
-    ensure_path(pairs_output_file)
-    mention_map = pickle.load(open(mention_map_file, "rb"))
+    for split in ["dev", "test", "debug_split", "train"]:
+        store_split = split
+        retrieve_split = split
 
-    store_mention_ids = get_split_ids(mention_map, store_split)
-    retrieve_mention_ids = get_split_ids(mention_map, retrieve_split)
+        pairs_output_file = pairs_output_dir / f"{split}.pairs"
+        ensure_path(pairs_output_file)
+        mention_map = pickle.load(open(mention_map_file, "rb"))
 
-    mention_pairs_inds = [
-        (i, j)
-        for i in range(len(retrieve_mention_ids))
-        for j in range(len(store_mention_ids))
-    ]
-    if same_topic:
+        store_mention_ids = get_split_ids(mention_map, store_split)
+        retrieve_mention_ids = get_split_ids(mention_map, retrieve_split)
+
         mention_pairs_inds = [
             (i, j)
-            for i, j in mention_pairs_inds
-            if mention_map[retrieve_mention_ids[i]]["topic"]
-            == mention_map[store_mention_ids[j]]["topic"]
+            for i in range(len(retrieve_mention_ids))
+            for j in range(len(store_mention_ids))
         ]
-    print(len(mention_pairs_inds))
-    mention_pairs_inds = list(set([tuple(sorted(p)) for p in mention_pairs_inds]))
-    print(len(mention_pairs_inds))
-    lemma_scores, sentence_scores = get_mention_pair_similarity_bertscore(
-        mention_pairs_inds,
-        retrieve_mention_ids,
-        store_mention_ids,
-        mention_map,
-        text_key,
-        batch_size,
-        big_batch_size=big_batch_size,
-    )
-    score_map = defaultdict(list)
-    for (i, j), l_score, s_score in zip(
-        mention_pairs_inds, lemma_scores, sentence_scores
-    ):
-        score_map[i].append((j, 0.7 * l_score + 0.3 * s_score))
+        if same_topic:
+            mention_pairs_inds = [
+                (i, j)
+                for i, j in mention_pairs_inds
+                if mention_map[retrieve_mention_ids[i]]["topic"]
+                == mention_map[store_mention_ids[j]]["topic"]
+                and (
+                    mention_map[retrieve_mention_ids[i]]["doc_id"],
+                    mention_map[store_mention_ids[i]]["sentence_id"],
+                )
+                != (
+                    mention_map[store_mention_ids[j]]["doc_id"],
+                    mention_map[retrieve_mention_ids[j]]["sentence_id"],
+                )
+            ]
+        print(len(mention_pairs_inds))
+        mention_pairs_inds = list(set([tuple(sorted(p)) for p in mention_pairs_inds]))
+        print(len(mention_pairs_inds))
+        lemma_scores, sentence_scores = get_mention_pair_similarity_bertscore(
+            mention_pairs_inds,
+            retrieve_mention_ids,
+            store_mention_ids,
+            mention_map,
+            text_key,
+            batch_size,
+            big_batch_size=big_batch_size,
+        )
+        score_map = defaultdict(list)
+        for (i, j), l_score, s_score in zip(
+            mention_pairs_inds, lemma_scores, sentence_scores
+        ):
+            score_map[i].append((j, 0.7 * l_score + 0.3 * s_score))
 
-    score_map = {
-        i: sorted(vals, key=lambda x: x[1], reverse=True)[:top_k]
-        for i, vals in score_map.items()
-    }
+        score_map = {
+            i: sorted(vals, key=lambda x: x[1], reverse=True)[:top_k]
+            for i, vals in score_map.items()
+        }
 
-    output_pairs = set()
-    for m1, vals in score_map.items():
-        for val in vals:
-            pair = tuple(sorted([retrieve_mention_ids[m1], store_mention_ids[val[0]]]))
-            output_pairs.add(pair)
+        output_pairs = set()
+        for m1, vals in score_map.items():
+            for val in vals:
+                pair = tuple(
+                    sorted([retrieve_mention_ids[m1], store_mention_ids[val[0]]])
+                )
+                output_pairs.add(pair)
 
-    print("Saved Pairs", len(output_pairs))
-    output_pairs = list(output_pairs)
-    pickle.dump(output_pairs, open(pairs_output_file, "wb"))
+        print(f"Saved Pairs at {pairs_output_file}", len(output_pairs))
+        output_pairs = list(output_pairs)
+        pickle.dump(output_pairs, open(pairs_output_file, "wb"))
 
 
 @app.command()
-def save_knn_mention_pairs(
+def save_knn_mention_pairs_all(
     mention_map_file: str,
-    split: str,
     model_path: str,
-    knn_output_file: Path,
-    pairs_output_file: Path,
-    ce_text_key: str = "marked_sentence",
+    knn_out_dir: Path,
+    pairs_out_dir: Path,
+    text_key: str = "marked_sentence",
     top_k: int = 10,
     device: str = "cuda",
     long: bool = False,
     force: bool = False,
 ):
-    ensure_path(knn_output_file)
-    ensure_path(pairs_output_file)
-
     mention_map = pickle.load(open(mention_map_file, "rb"))
-    split_mention_ids = [
-        m_id
-        for m_id, men in mention_map.items()
-        if men["men_type"] == "evt" and men["split"] == split
-    ]
-    model = load_model_from_path(BiEncoder, model_path, training=False, long=long)
-    mention_pairs = get_knn_pairs(
-        mention_map,
-        split_mention_ids,
-        model,
-        knn_output_file,
-        ce_text_key,
-        top_k,
-        device,
-        force,
-    )
-    print("mention pairs", len(mention_pairs))
-    pickle.dump(mention_pairs, open(pairs_output_file, "wb"))
+    for split in ["dev", "test", "debug_split"]:
+        if split == "debug_split":
+            top_k = 3
+        knn_output_file = knn_out_dir / f"{split}.pkl"
+        pairs_output_file = pairs_out_dir / f"{split}.pairs"
+        ensure_path(knn_output_file)
+        ensure_path(pairs_output_file)
+        split_mention_ids = [
+            m_id
+            for m_id, men in mention_map.items()
+            if men["men_type"] == "evt" and men["split"] == split
+        ]
+        mention_pairs = []
+        if len(split_mention_ids) > 0:
+            model = load_model_from_path(BiEncoder, model_path, training=False, long=long)
+            mention_pairs = get_knn_pairs(
+                mention_map,
+                split_mention_ids,
+                model,
+                knn_output_file,
+                text_key,
+                top_k,
+                device,
+                force,
+            )
+        print(f"{split} - mention pairs", len(mention_pairs))
+        print(f"saved {split} at {str(pairs_output_file)}")
+        pickle.dump(mention_pairs, open(pairs_output_file, "wb"))
 
 
 @app.command()
@@ -760,21 +789,28 @@ def save_knn_mention_pairs_ce(
 
 
 @app.command()
-def merge_mention_pairs(p1_path: Path, p2_path: Path, outfile_path: Path):
-    ensure_path(outfile_path)
-    pairs1 = list(pickle.load(open(p1_path, "rb")))
-    pairs2 = list(pickle.load(open(p2_path, "rb")))
-    print("p1", len(pairs1))
-    print("p2", len(pairs2))
+def merge_mention_pairs_all(p1_dir: Path, p2_dir: Path, out_dir: Path):
+    for split in ["dev", "debug_split", "test"]:
+        outfile_path = out_dir / f"{split}.pairs"
+        print(outfile_path)
+        ensure_path(outfile_path)
+        print(f"Saving pairs for {split}")
+        p1_path = p1_dir / f"{split}.pairs"
+        p2_path = p2_dir / f"{split}.pairs"
 
-    merged = set()
-    for m1, m2 in pairs1 + pairs2:
-        if m1 > m2:
-            merged.add((m1, m2))
-        else:
-            merged.add((m2, m1))
-    print("merged", len(merged))
-    pickle.dump(merged, open(outfile_path, "wb"))
+        pairs1 = list(pickle.load(open(p1_path, "rb")))
+        pairs2 = list(pickle.load(open(p2_path, "rb")))
+        print("p1", len(pairs1))
+        print("p2", len(pairs2))
+
+        merged = []
+        for m1, m2 in pairs1 + pairs2:
+            if m1 > m2:
+                merged.append((m1, m2))
+            else:
+                merged.append((m2, m1))
+        print("merged", len(merged))
+        pickle.dump(merged, open(outfile_path, "wb"))
 
 
 if __name__ == "__main__":

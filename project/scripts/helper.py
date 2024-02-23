@@ -66,6 +66,7 @@ def generate_mention_pairs(mention_map, split):
                 "predicted_topic"
             ]  # specifically for the test set of ECB
         except KeyError:
+            # print("HELLO")
             topic = None
         if not topic:
             topic = mention_map[m_id]["topic"]
@@ -79,9 +80,17 @@ def generate_mention_pairs(mention_map, split):
         list_mentions = list(mentions)
         for i in range(len(list_mentions)):
             for j in range(i + 1):
-                if i != j:
-                    mention_pairs.append((list_mentions[i], list_mentions[j]))
-
+                m1 = list_mentions[i]
+                m2 = list_mentions[j]
+                doc_sent_id1 = (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+                doc_sent_id2 = (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+                if m1 > m2:
+                    m2, m1 = m1, m2
+                if i != j and mention_map and doc_sent_id1 != doc_sent_id2:
+                    mention_pairs.append((m1, m2))
+    # print(len(mention_pairs))
+    # mention_pairs = list(set(mention_pairs))
+    # print(len(mention_pairs))
     return mention_pairs
 
 
@@ -238,6 +247,7 @@ def evaluate(
     similarity_matrix: np.ndarray,
     tmp_folder: str = "/tmp/",
     threshold: float = 0.5,
+    greedy: bool = False
 ) -> Dict[str, Tuple[float, float, float]]:
     """
     Evaluate the prediction results using various coreference resolution metrics.
@@ -255,6 +265,7 @@ def evaluate(
         A one-dimensional array representing the predicted results for each pair of mentions.
     tmp_folder : str, optional
         Directory path to store temporary files. Defaults to '../../tmp/'.
+    greedy : bool
 
     Returns
     -------
@@ -274,8 +285,10 @@ def evaluate(
     generate_key_file(curr_gold_cluster_map, "evt", tmp_folder, gold_key_file)
 
     # Run clustering using prediction_pairs and similarity_matrix
-    mid2cluster = cluster(split_mention_ids, prediction_pairs, similarity_matrix, threshold=threshold)
-    # mid2cluster = cluster_greedy(split_mention_ids, prediction_pairs, similarity_matrix)
+    if greedy:
+        mid2cluster = cluster_greedy(split_mention_ids, prediction_pairs, similarity_matrix)
+    else:
+        mid2cluster = cluster(split_mention_ids, prediction_pairs, similarity_matrix, threshold=threshold)
 
     # Create a predictions key file
     system_key_file = tmp_folder + "/predicted_clusters.keyfile"

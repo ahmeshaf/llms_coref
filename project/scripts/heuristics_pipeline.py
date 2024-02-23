@@ -1,4 +1,5 @@
 import pickle
+from pathlib import Path
 
 import numpy as np
 from typer import Typer
@@ -8,7 +9,7 @@ from .helper import evaluate
 app = Typer()
 
 
-def get_scores(mention_map, split, mention_pairs, oracle=False):
+def get_scores(mention_map, split, mention_pairs, oracle=False, greedy=False):
     evt_mention_map = {
         m_id: men
         for m_id, men in mention_map.items()
@@ -33,16 +34,31 @@ def get_scores(mention_map, split, mention_pairs, oracle=False):
         )
     # breakpoint()
     scores = evaluate(
-        mention_map, split_mention_ids, mention_pairs, similarities, tmp_folder="/tmp/"
+        mention_map,
+        split_mention_ids,
+        mention_pairs,
+        similarities,
+        tmp_folder="/tmp/",
+        greedy=greedy,
     )
     return scores
 
 
 @app.command()
-def run_mp_pipeline(mention_map_file, split, mention_pairs_file, oracle: bool = False):
+def run_mp_pipeline(
+    mention_map_file,
+    mention_pairs_dir: Path,
+    oracle: bool = False,
+    greedy: bool = False,
+):
     mention_map = pickle.load(open(mention_map_file, "rb"))
-    mention_pairs = pickle.load(open(mention_pairs_file, "rb"))
-    get_scores(mention_map, split, mention_pairs, oracle)
+
+    for split in ["dev", "debug_split", "test"]:
+        print(f" ============= Running heuristic on {split} ================")
+        mention_pairs_file = mention_pairs_dir / f"{split}.pairs"
+        mention_pairs = pickle.load(open(mention_pairs_file, "rb"))
+        print(f" =============  {split} Results ================")
+        get_scores(mention_map, split, mention_pairs, oracle=oracle, greedy=greedy)
 
 
 if __name__ == "__main__":
