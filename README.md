@@ -17,7 +17,10 @@ Accompanying code for the ARR paper "_Making Event coreference resolution Tough 
   1. [Getting Started](#getting-started)
   2. [Preprocessing](#preprocessing)
   3. [ECB+META Generation](#ecbmeta-generation)
-  4. 
+  4. [Annotations](#annotations)
+  5. [Training](#training)
+  6. [Prediction](#prediction)
+  7. [Error Analysis](#error-analysis)
 
 ## Getting Started
 - Install the required packages:
@@ -91,9 +94,11 @@ python -m scripts.parse_meta parse ./outputs/meta_multi/merged.pkl  ./corpus/ecb
 
 ```
 
-## BERT Pipelines
-```shell
-python -m scripts.bert_pipeline ./corpus/ecb/ debug_split ./outputs/lh/mention_pairs.pkl 
-/home/rehan/workspace/models/ce_models/ecb_small/ --max-sentence-len 512 --ce-score-file 
-./outputs/knn/ce_score_lh.pkl
-```
+## Annotations
+
+## Training
+
+## Prediction
+
+## Error Analysis
+The file used for Error Analysis on the dev_small split of ECB+META_1 and ECB+META_m can be found at: [data/ecb_meta_analysis.xlsx](data/ecb_meta_analysis.xlsx)
