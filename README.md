@@ -11,56 +11,62 @@ Modeling code adapted from:
 2. [ahmeshaf/lemma_ce_coref](https://github.com/ahmeshaf/lemma_ce_coref)
 3. [Helw150/Entity-Mover-Distance](https://github.com/Helw150/Entity-Mover-Distance)
 
-## Prereqs
+Accompanying code for the ARR paper "_Making Event coreference resolution Tough Again. Metaphorically speaking_"
 
-### Libraries
+## Contents
+  1. [Getting Started](#getting-started)
+  2. [Preprocessing](#preprocessing)
+  3. [ECB+META Generation](#ecbmeta-generation)
+  4. 
+
+## Getting Started
+- Install the required packages:
+
 ```shell
 pip install -r requirements.txt
 ```
 
-Spacy model:
+- Spacy model:
 ```shell
 python -m spacy download en_core_web_lg
 ```
-
-### Change Directory to project
+- Change Directory to project
 ```shell
 cd project
 ```
 
-### OpenAI API Key Setup
+- OpenAI API Key Setup
 The OpenAI API Key can be set up by the below line:
 ```shell
 export OPENAI_API_KEY=<Your-OpenAI-API-Key>
 ```
 
 
+## Preprocessing
 
-## Getting Started with ECB+ Corpus
-
-These scripts download and process the ECB+ corpus into a pkl corpus file which we call `mention_map.pkl`
+- These scripts download and process the ECB+ corpus into a pkl corpus file which we call `mention_map.pkl`
 ```sh
 python -m spacy project assets
 ```
-
+- Preprocess the ECB+ corpus
 ```sh
 python -m spacy project run ecb-setup
 ```
 
 This will create the corpus file at `corpus/ecb/mention_map.pkl`
 
-## Generate ECB+META Corpora
+## ECB+META Generation
 ### ECB+META_1
 Run the following scripts to generate the corpus file for the single-word metaphoric transformation of ECB+ at: 
 `corpus/ecb_meta_1/mention_map.pkl`
 
-Run GPT-4 pipeline:
+- Run GPT-4 pipeline:
 ```shell
 python -m scripts.llm_pipeline corpus/ecb/ test  --experiment-name meta_single
 python -m scripts.llm_pipeline corpus/ecb/ dev --experiment-name meta_single
 python -m scripts.llm_pipeline corpus/ecb/ debug_split --experiment-name meta_single
 ```
-Generate corpus file:
+- Generate corpus file:
 ```shell
 python scripts/merge_meta.py ./outputs/meta_single/merged.pkl ./outputs/meta_single/gpt-4*.pkl
 python -m scripts.parse_meta save-doc-sent-map ./outputs/meta_single/merged.pkl ./corpus/ecb/doc_sent_map.pkl ./corpus/ecb_meta_single/doc_sent_map.pkl
@@ -71,13 +77,13 @@ python -m scripts.parse_meta parse ./outputs/meta_single/merged.pkl  ./corpus/ec
 Run the following scripts to generate the corpus file for the multi-word metaphoric transformation of ECB+ at: 
 `corpus/ecb_meta_m/mention_map.pkl`
 
-Run GPT-4 pipeline:
+- Run GPT-4 pipeline:
 ```shell
 python -m scripts.llm_pipeline corpus/ecb/ test  --experiment-name meta_multi
 python -m scripts.llm_pipeline corpus/ecb/ dev --experiment-name meta_multi
 python -m scripts.llm_pipeline corpus/ecb/ debug_split --experiment-name meta_multi
 ```
-Generate corpus file:
+- Generate corpus file:
 ```shell
 python scripts/merge_meta.py ./outputs/meta_multi/merged.pkl ./outputs/meta_multi/gpt-4*.pkl
 python -m scripts.parse_meta save-doc-sent-map ./outputs/meta_multi/merged.pkl ./corpus/ecb/doc_sent_map.pkl ./corpus/ecb_meta_multi/doc_sent_map.pkl
