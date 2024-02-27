@@ -726,7 +726,7 @@ def save_knn_mention_pairs_all(
     force: bool = False,
 ):
     mention_map = pickle.load(open(mention_map_file, "rb"))
-    for split in ["dev", "test", "debug_split"]:
+    for split in ["train", "dev", "test", "debug_split"]:
         if split == "debug_split":
             top_k = 3
         knn_output_file = knn_out_dir / f"{split}.pkl"

@@ -18,8 +18,8 @@ Accompanying code for the ARR paper "_Making Event coreference resolution Tough 
   2. [Preprocessing](#preprocessing)
   3. [ECB+META Generation](#ecbmeta-generation)
   4. [Annotations](#annotations)
-  5. [Training](#training)
-  6. [Prediction](#prediction)
+  5. [BiEncoder](#biencoder)
+  6. [Cross-encoder](#cross-encoder)
   7. [Error Analysis](#error-analysis)
 
 ## Getting Started
@@ -96,9 +96,30 @@ python -m scripts.parse_meta parse ./outputs/meta_multi/merged.pkl  ./corpus/ecb
 
 ## Annotations
 
-## Training
-
-## Prediction
+## BiEncoder
+- Training the BiEncoder KNN
+```shell
+python -m scripts.bert.train train-biencoder
+        ./corpus/ecb/mention_map.pkl
+        --model-name roberta-base
+        --text-key neighbors_3
+        --learning-rate 0.00001
+        --batch-size 4
+        --epochs 20
+        --save-path ./outputs/biencoder/triplet
+```
+- Extracing KNN mention pairs for `ecb|ecb_meta_single|ecb_meta_multi`
+```shell
+ python -m scripts.knn save-knn-mention-pairs-all 
+        ./corpus/ecb|ecb_meta_single|ecb_meta_multi/mention_map.pkl 
+        ./outputs/biencoder/triplet 
+        ./outputs/ecb|ecb_meta_single|ecb_meta_multi/knn/ 
+        ./outputs/ecb|ecb_meta_single|ecb_meta_multi/mention_pairs/ 
+        --text-key neighbors_3 
+        --top-k 5
+```
+## Cross-encoder
+- Training the Cross-encoder on the BiEncoder's KNN mention pairs:
 
 ## Error Analysis
 The file used for Error Analysis on the dev_small split of ECB+META_1 and ECB+META_m can be found at: [data/ecb_meta_analysis.xlsx](data/ecb_meta_analysis.xlsx)
