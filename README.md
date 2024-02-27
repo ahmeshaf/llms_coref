@@ -131,7 +131,7 @@ python -m scripts.heuristic
        ./outputs/mention_pairs/ecb|ecb_meta_single|ecb_meta_multi/lh/
 ```
 ## Cross-encoder
-- Training the Cross-encoder on the BiEncoder's KNN mention pairs:
+- Training the Cross-encoder on the BiEncoder's KNN mention pairs (CE_KNN):
 ```shell
 python -m scripts.bert.train train-cross-encoder 
        ./corpus/ecb/ 
@@ -140,7 +140,7 @@ python -m scripts.bert.train train-cross-encoder
        ./outputs/cross_encoder/knn/ 
        --text-key neighbors_3
 ```
-- Training the Cross-encoder on the LH's mention pairs:
+- Training the Cross-encoder on the LH's mention pairs (CE_LH):
 ```shell
 python -m scripts.bert.train train-cross-encoder 
        ./corpus/ecb/ 
@@ -151,10 +151,39 @@ python -m scripts.bert.train train-cross-encoder
 ```
 
 ## Prediction
-- Running the Oracle Results for Recall Measure
+- Running the Oracle Results for Recall Measure for `ecb|ecb_meta_single|ecb_meta_multi` on `knn|lh`
 ```shell
-
+python -m scripts.heuristics_pipeline 
+       ./corpus/ecb|ecb_meta_single|ecb_meta_multi/mention_map.pkl 
+       ./outputs/mention_pairs/ecb|ecb_meta_single|ecb_meta_multi/knn|lh/ 
+       --oracle
 ```
-- Running the LH coreference Pipeline
+- Running the LH coreference Pipeline for `ecb|ecb_meta_single|ecb_meta_multi`
+```shell
+python -m scripts.heuristics_pipeline 
+       ./corpus/ecb|ecb_meta_single|ecb_meta_multi/mention_map.pkl 
+       ./outputs/mention_pairs/ecb|ecb_meta_single|ecb_meta_multi/lh/ 
+```
+- Running the CE_LH coreference pipelines on `ecb|ecb_meta_single|ecb_meta_multi` on `dev|debug_split|test`
+```shell
+python -m scripts.bert_pipeline 
+       ./corpus/ecb|ecb_meta_single|ecb_meta_multi/mention_map.pkl 
+       dev|debug_split|test 
+       ./outputs/mention_pairs/ecb/lh/dev|debug_split|test.pairs 
+       ./outputs/crossencoder/lh 
+       --text-key marked_sentence 
+       --max-sentence-length 256
+```
+- Running the CE_KNN coreference pipelines on `ecb|ecb_meta_single|ecb_meta_multi` on `dev|debug_split|test`
+```shell
+python -m scripts.bert_pipeline 
+       ./corpus/ecb|ecb_meta_single|ecb_meta_multi/mention_map.pkl 
+       dev|debug_split|test 
+       ./outputs/mention_pairs/ecb/knn/dev|debug_split|test.pairs 
+       ./outputs/crossencoder/knn 
+       --text-key neighbors_3 
+       --max-sentence-length 512
+```
+
 ## Error Analysis
 The file used for Error Analysis on the dev_small split of ECB+META_1 and ECB+META_m can be found at: [data/ecb_meta_analysis.xlsx](data/ecb_meta_analysis.xlsx)
