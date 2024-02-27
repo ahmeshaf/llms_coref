@@ -19,8 +19,9 @@ Accompanying code for the ARR paper "_Making Event coreference resolution Tough 
   3. [ECB+META Generation](#ecbmeta-generation)
   4. [Annotations](#annotations)
   5. [BiEncoder](#biencoder)
-  6. [Cross-encoder](#cross-encoder)
-  7. [Error Analysis](#error-analysis)
+  6. [Lemma Heuristic](#lemma-heuristic)
+  7. [Cross-encoder](#cross-encoder)
+  8. [Error Analysis](#error-analysis)
 
 ## Getting Started
 - Install the required packages:
@@ -117,6 +118,16 @@ python -m scripts.bert.train train-biencoder
         ./outputs/ecb|ecb_meta_single|ecb_meta_multi/mention_pairs/ 
         --text-key neighbors_3 
         --top-k 5
+```
+
+## Lemma Heuristic
+- Extracting LH mention pairs for `ecb|ecb_meta_single|ecb_meta_multi`
+```shell
+python -m scripts.heuristic
+       ./corpus/ecb|ecb_meta_single|ecb_meta_multi/mention_map.pkl
+       lh
+       0.1
+       ./outputs/mention_pairs/ecb|ecb_meta_single|ecb_meta_multi/lh/
 ```
 ## Cross-encoder
 - Training the Cross-encoder on the BiEncoder's KNN mention pairs:
