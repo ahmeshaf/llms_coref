@@ -392,7 +392,7 @@ def save_lh_pairs(
 ):
     # lh_threshold = float(lh_threshold)
     mention_map = pickle.load(open(mention_map_file, "rb"))
-    for split in ["dev", "debug_split", "test"]:
+    for split in ["train", "dev", "debug_split", "test"]:
         pairs_out_file = pairs_out_dir / f"{split}.pairs"
         ensure_path(pairs_out_file)
 
