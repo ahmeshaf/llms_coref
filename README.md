@@ -21,7 +21,7 @@ Accompanying code for the ARR paper "_Making Event coreference resolution Tough 
   5. [BiEncoder](#biencoder)
   6. [Lemma Heuristic](#lemma-heuristic)
   7. [Cross-encoder](#cross-encoder)
-  8. [Prediction][#prediction)
+  8. [Prediction](#prediction)
   9. [Error Analysis](#error-analysis)
 
 ## Getting Started
