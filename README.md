@@ -120,6 +120,13 @@ python -m scripts.bert.train train-biencoder
 ```
 ## Cross-encoder
 - Training the Cross-encoder on the BiEncoder's KNN mention pairs:
-
+```shell
+python -m scripts.bert.train train-cross-encoder 
+       ./corpus/ecb/ 
+       ./outputs/mention_pairs/ecb/knn/train.pairs 
+       ./outputs/mention_pairs/ecb/knn/dev.pairs 
+       ./outputs/cross_encoder/knn/ 
+       --text-key neighbors_3
+```
 ## Error Analysis
 The file used for Error Analysis on the dev_small split of ECB+META_1 and ECB+META_m can be found at: [data/ecb_meta_analysis.xlsx](data/ecb_meta_analysis.xlsx)
