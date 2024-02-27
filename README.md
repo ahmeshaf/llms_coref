@@ -21,7 +21,8 @@ Accompanying code for the ARR paper "_Making Event coreference resolution Tough 
   5. [BiEncoder](#biencoder)
   6. [Lemma Heuristic](#lemma-heuristic)
   7. [Cross-encoder](#cross-encoder)
-  8. [Error Analysis](#error-analysis)
+  8. [Prediction][#prediction)
+  9. [Error Analysis](#error-analysis)
 
 ## Getting Started
 - Install the required packages:
@@ -148,5 +149,12 @@ python -m scripts.bert.train train-cross-encoder
        ./outputs/cross_encoder/lh/ 
        --text-key marked_sentence
 ```
+
+## Prediction
+- Running the Oracle Results for Recall Measure
+```shell
+
+```
+- Running the LH coreference Pipeline
 ## Error Analysis
 The file used for Error Analysis on the dev_small split of ECB+META_1 and ECB+META_m can be found at: [data/ecb_meta_analysis.xlsx](data/ecb_meta_analysis.xlsx)
