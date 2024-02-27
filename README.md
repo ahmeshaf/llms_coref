@@ -139,5 +139,14 @@ python -m scripts.bert.train train-cross-encoder
        ./outputs/cross_encoder/knn/ 
        --text-key neighbors_3
 ```
+- Training the Cross-encoder on the LH's mention pairs:
+```shell
+python -m scripts.bert.train train-cross-encoder 
+       ./corpus/ecb/ 
+       ./outputs/mention_pairs/ecb/lh/train.pairs 
+       ./outputs/mention_pairs/ecb/lh/dev.pairs 
+       ./outputs/cross_encoder/lh/ 
+       --text-key marked_sentence
+```
 ## Error Analysis
 The file used for Error Analysis on the dev_small split of ECB+META_1 and ECB+META_m can be found at: [data/ecb_meta_analysis.xlsx](data/ecb_meta_analysis.xlsx)
