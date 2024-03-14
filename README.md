@@ -60,6 +60,28 @@ python -m spacy project run ecb-setup
 
 This will create the corpus file at `corpus/ecb/mention_map.pkl`
 
+### Data Format
+Each mention in the corpus file is represented as follows: 
+```shell
+{
+  "mention_id": "12_10ecb.xml_5",
+  "topic": "12",
+  "doc_id": "12_10ecb.xml",
+  "sentence_id": "0",
+  "marked_sentence": "The Indian navy has <m> captured </m> 23 Somalian pirates .",
+  "marked_doc": "The Indian navy has <m> captured </m> 23 Somalian ...",
+  "mention_text": "captured",
+  "lemma": "capture",
+  "men_type": "evt",
+  "gold_cluster": "ACT17403639225065902",
+  "sentence": "The Indian navy has captured 23 Somalian pirates .",
+  "start_char": 20,
+  "end_char": 28,
+  "neighbors_left": [],
+  "neighbors_right": [sentence_1, sentence_2, ...]
+}
+```
+
 ## ECB+META Generation
 ### ECB+META_1
 Run the following scripts to generate the corpus file for the single-word metaphoric transformation of ECB+ at: 
