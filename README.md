@@ -83,9 +83,9 @@ Each mention in the corpus file is represented as follows:
 ```
 
 ## ECB+META Generation
-### ECB+META_1
+### ECB+META<sub>1</sub>
 Run the following scripts to generate the corpus file for the single-word metaphoric transformation of ECB+ at: 
-`corpus/ecb_meta_1/mention_map.pkl`
+`corpus/ecb_meta_single/mention_map.pkl`
 
 - Run GPT-4 pipeline:
 ```shell
@@ -100,9 +100,9 @@ python -m scripts.parse_meta save-doc-sent-map ./outputs/meta_single/merged.pkl 
 python -m scripts.parse_meta parse ./outputs/meta_single/merged.pkl  ./corpus/ecb_meta_single/doc_sent_map.pkl ./corpus/ecb/mention_map.pkl ./corpus/ecb_meta_single/mention_map.pkl
 ```
 
-### ECB+META_m
+### ECB+META<sub>_m_</sub>
 Run the following scripts to generate the corpus file for the multi-word metaphoric transformation of ECB+ at: 
-`corpus/ecb_meta_m/mention_map.pkl`
+`corpus/ecb_meta_multi/mention_map.pkl`
 
 - Run GPT-4 pipeline:
 ```shell
