@@ -3,7 +3,7 @@ description: ""
 
 vars:
   gpu: 0
-  ecb-dir: corpus/ecb_meta
+  ecb-dir: corpus/ecb
   ecb-mention-map: corpus/ecb_meta/mention_map_single.pkl
   doc-sent-map: corpus/ecb/doc_sent_map.pkl
   augment-context-path: corpus/ecb/mention_map_with_context.pkl

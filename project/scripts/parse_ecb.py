@@ -353,6 +353,7 @@ def parse_annotations(annotation_folder: Path, output_folder: Path, spacy_model:
 
     # save pickle
     pickle.dump(mention_map, open(output_folder / f"mention_map.pkl", "wb"))
+    print("Corpus file saved at ", output_folder / f"mention_map.pkl")
 
     return mention_map
 

@@ -119,3 +119,56 @@ class CrossEncoder(nn.Module):
             return lm_output
 
         return self.linear(lm_output)
+
+
+class CrossEncoderSumm(CrossEncoder):
+    def __init__(
+            self,
+            long=True,
+            tokenizer=None,
+            lm_model=None,
+            linear_weights=None,
+    ):
+        super(CrossEncoder, self).__init__()
+        self.tokenizer = tokenizer
+        self.model = lm_model
+        self.long = long
+
+        self.start_id = self.tokenizer.encode("<m>", add_special_tokens=False)[0]
+        self.end_id = self.tokenizer.encode("</m>", add_special_tokens=False)[0]
+
+        self.hidden_size = self.model.config.hidden_size
+
+        self.linear = nn.Sequential(
+            nn.Linear(self.hidden_size * 4, self.hidden_size),
+            nn.Tanh(),
+            nn.Linear(self.hidden_size, 128),
+            nn.Tanh(),
+            nn.Linear(128, 1),
+            nn.Sigmoid(),
+        )
+
+        if linear_weights is None:
+            self.linear.apply(init_weights)
+        else:
+            self.linear.load_state_dict(linear_weights)
+
+
+def add_special_tokens(lm_model, tokenizer_, special_tokens):
+    tokenizer_.add_tokens(special_tokens, special_tokens=True)
+    lm_model.resize_token_embeddings(len(tokenizer_))
+
+
+if __name__ == "__main__":
+    # load a t5-small model and tokenizer
+    model = AutoModel.from_pretrained('google-t5/t5-small')
+
+    tokenizer = AutoTokenizer.from_pretrained('google-t5/t5-small')
+
+    add_special_tokens(model, tokenizer, ['<m>', '</m>'])
+
+    # load a CrossEncoderSumm
+    crossencoder = CrossEncoderSumm(long=False, lm_model=model.encoder, tokenizer=tokenizer)
+    crossencoder.to("cuda:0")
+    print(crossencoder)
+

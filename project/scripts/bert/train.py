@@ -12,10 +12,10 @@ import typer
 from datasets import Dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from transformers import AutoModel
+from transformers import AutoModel, AutoTokenizer
 
 from ..heuristics_pipeline import get_scores
-from .models import CrossEncoder
+from .models import add_special_tokens, CrossEncoder, CrossEncoderSumm
 from ..helper import ensure_path, f1_score, recall, precision, accuracy
 from .bi_encoder import BiEncoder
 from .helper import (
@@ -1051,6 +1051,90 @@ def train_cross_encoder(
         scorer_module = CrossEncoder(
             model_name=model_name, is_training=True, long=is_long
         )
+
+    print(len(train_pairs))
+    print("Train pos labels", np.sum(train_labels))
+    print("Train neg labels", sum(1 - np.array(train_labels)))
+    print(len(dev_pairs))
+    print("Dev pos labels", np.sum(dev_labels))
+    print("Dev neg labels", sum(1 - np.array(dev_labels)))
+
+    parallel_model = torch.nn.DataParallel(scorer_module, device_ids=device_ids)
+    parallel_model.module.to(device)
+    train_ce(
+        train_pairs,
+        train_labels,
+        dev_pairs,
+        dev_labels,
+        parallel_model,
+        evt_mention_map,
+        output_folder,
+        text_key=text_key,
+        max_sentence_len=max_sentence_len,
+        device=device,
+        batch_size=batch_size,
+        n_iters=epochs,
+        lr_lm=0.000001,
+        lr_class=0.0001,
+    )
+
+
+@app.command()
+def train_cross_encoder_summ(
+    dataset_folder,
+    train_pairs_path,
+    dev_pairs_path,
+    output_folder: Path,
+    model_name: str = "google-t5/t5-small",
+    max_sentence_len: int = 512,
+    is_long=False,
+    device="cuda:0",
+    text_key: str = "marked_sentence",
+    batch_size: int = 20,
+    epochs: int = 10,
+):
+    ensure_path(output_folder)
+    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+    evt_mention_map = {
+        m_id: m for m_id, m in mention_map.items() if m["men_type"] == "evt"
+    }
+
+    train_pairs = list(pickle.load(open(train_pairs_path, "rb")))
+    print(len(train_pairs))
+    train_pairs = [
+        (m1, m2)
+        for m1, m2 in train_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
+
+    dev_pairs = list(pickle.load(open(dev_pairs_path, "rb")))
+    print(len(dev_pairs))
+    dev_pairs = [
+        (m1, m2)
+        for m1, m2 in dev_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
+    train_labels = [
+        int(mention_map[m1]["gold_cluster"] == mention_map[m2]["gold_cluster"])
+        for m1, m2 in train_pairs
+    ]
+    dev_labels = [
+        int(mention_map[m1]["gold_cluster"] == mention_map[m2]["gold_cluster"])
+        for m1, m2 in dev_pairs
+    ]
+
+    device = torch.device(device)
+    device_ids = list(range(1))
+    # load a t5 model and tokenizer here
+    # load the CrossEncoderSum as scorer_module
+    model = AutoModel.from_pretrained(model_name).encoder
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    add_special_tokens(model, tokenizer, ['<m>', '</m>'])
+    scorer_module = CrossEncoderSumm(long=False, tokenizer=tokenizer, lm_model=model)
 
     print(len(train_pairs))
     print("Train pos labels", np.sum(train_labels))

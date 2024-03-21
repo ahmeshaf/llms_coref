@@ -12,7 +12,7 @@ stemmer = nltk.PorterStemmer()
 eng_stops = set(stopwords.words("english"))
 print(stemmer.stem("Hello"))
 
-mention_map = pickle.load(open("../corpus/ecb_meta/mention_map.pkl", "rb"))
+mention_map = pickle.load(open("../corpus/ecb/mention_map.pkl", "rb"))
 #
 for mention in mention_map.values():
     marked_sentence = mention["marked_sentence"]

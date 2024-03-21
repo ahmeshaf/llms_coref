@@ -12,3 +12,5 @@ typer
 faiss-gpu
 torchvision
 git+https://github.com/ns-moosavi/coval.git
+black
+bitsandbytes

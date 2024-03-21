@@ -146,11 +146,11 @@ python -m scripts.bert.train train-biencoder
 ## Lemma Heuristic
 - Extracting LH mention pairs for `ecb|ecb_meta_single|ecb_meta_multi`
 ```shell
-python -m scripts.heuristic
-       ./corpus/ecb|ecb_meta_single|ecb_meta_multi/mention_map.pkl
-       lh
-       0.1
-       ./outputs/mention_pairs/ecb|ecb_meta_single|ecb_meta_multi/lh/
+python -m scripts.heuristic \
+       ./corpus/ecb/mention_map.pkl \
+       lh \
+       0.1 \
+       ./outputs/mention_pairs/ecb/lh/
 ```
 ## Cross-encoder
 - Training the Cross-encoder on the BiEncoder's KNN mention pairs (CE_KNN):
@@ -164,11 +164,11 @@ python -m scripts.bert.train train-cross-encoder
 ```
 - Training the Cross-encoder on the LH's mention pairs (CE_LH):
 ```shell
-python -m scripts.bert.train train-cross-encoder 
-       ./corpus/ecb/ 
-       ./outputs/mention_pairs/ecb/lh/train.pairs 
-       ./outputs/mention_pairs/ecb/lh/dev.pairs 
-       ./outputs/cross_encoder/lh/ 
+python -m scripts.bert.train train-cross-encoder \
+       ./corpus/ecb/ \
+       ./outputs/mention_pairs/ecb/lh/train.pairs \
+       ./outputs/mention_pairs/ecb/lh/dev.pairs \
+       ./outputs/cross_encoder/lh/ \
        --text-key marked_sentence
 ```
 
