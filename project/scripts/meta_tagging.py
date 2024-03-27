@@ -164,7 +164,7 @@ def make_json():
 
     mention_map_old = pickle.load(open("../corpus/ecb/mention_map.pkl", "rb"))
 
-    mention_map_meta = pickle.load(open("../corpus/ecb_meta_m/mention_map.pkl", "rb"))
+    mention_map_meta = pickle.load(open("../corpus/ecb_meta_multi/mention_map.pkl", "rb"))
 
     meta2task = {}
 
@@ -220,7 +220,7 @@ def make_json():
 
     print(len(tasks))
 
-    json.dump(tasks, open("../corpus/ecb_meta_m/tasks.json", "w"), indent=1)
+    json.dump(tasks, open("../corpus/ecb_meta_multi/tasks.json", "w"), indent=1)
 
 
 # make_json()
