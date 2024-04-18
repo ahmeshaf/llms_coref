@@ -9,13 +9,19 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import typer
-from datasets import Dataset
+from datasets import Dataset, load_dataset
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 from transformers import AutoModel, AutoTokenizer
 
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AdamW
+from sklearn.metrics import precision_score, recall_score, f1_score
+from evaluate import load
+
+
 from ..heuristics_pipeline import get_scores
 from .models import add_special_tokens, CrossEncoder, CrossEncoderSumm
+from ..data import ECRSummarizationDataset, ECRDataset, SummarizationDataset
 from ..helper import ensure_path, f1_score, recall, precision, accuracy
 from .bi_encoder import BiEncoder
 from .helper import (
@@ -1161,6 +1167,192 @@ def train_cross_encoder_summ(
         lr_lm=0.000001,
         lr_class=0.0001,
     )
+
+@app.command()
+def train_multitask(
+    dataset_folder,
+    train_pairs_path,
+    dev_pairs_path,
+    output_folder: Path,
+    model_name: str = "google-t5/t5-small",
+    max_sentence_len: int = 512,
+    is_long=False,
+    device="cuda:0",
+    text_key: str = "marked_sentence",
+    batch_size: int = 20,
+    epochs: int = 10,
+    print_rouge: bool = True,
+    coref_token: int = 2163,
+    nocoref_token: int = 465,
+    model_save_path: str = ""
+):
+    ensure_path(output_folder)
+    mention_map = pickle.load(open(dataset_folder + "/mention_map.pkl", "rb"))
+    evt_mention_map = {
+        m_id: m for m_id, m in mention_map.items() if m["men_type"] == "evt"
+    }
+
+    train_pairs = list(pickle.load(open(train_pairs_path, "rb")))
+    print(len(train_pairs))
+    train_pairs = [
+        (m1, m2)
+        for m1, m2 in train_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
+
+    dev_pairs = list(pickle.load(open(dev_pairs_path, "rb")))
+    print(len(dev_pairs))
+    dev_pairs = [
+        (m1, m2)
+        for m1, m2 in dev_pairs
+        if mention_map[m1]["topic"] == mention_map[m2]["topic"]
+        and (mention_map[m1]["doc_id"], mention_map[m1]["sentence_id"])
+        != (mention_map[m2]["doc_id"], mention_map[m2]["sentence_id"])
+    ]
+    train_labels = [
+        int(mention_map[m1]["gold_cluster"] == mention_map[m2]["gold_cluster"])
+        for m1, m2 in train_pairs
+    ]
+    dev_labels = [
+        int(mention_map[m1]["gold_cluster"] == mention_map[m2]["gold_cluster"])
+        for m1, m2 in dev_pairs
+    ]
+
+    # Download xsum news summarization data
+    xsum_dataset = load_dataset("xsum")
+
+    train_dataset = ECRSummarizationDataset(mention_map, train_pairs, train_labels, 'marked_sentence', xsum_dataset['train'])
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+    dev_ecr_dataset = ECRDataset(mention_map, dev_pairs, dev_labels, 'marked_sentence')
+    dev_ecr_loader = DataLoader(dev_ecr_dataset, batch_size=batch_size, shuffle=False)
+
+    dev_summ_dataset = SummarizationDataset(xsum_dataset['validation'][:len(dev_pairs)])
+    dev_summ_loader = DataLoader(dev_summ_dataset, batch_size=batch_size, shuffle=False)
+
+    if print_rouge:
+        rouge = load("rouge")
+
+    device = torch.device(device)
+    device_ids = list(range(1))
+    # load a t5 model and tokenizer here
+    # load the CrossEncoderSum as scorer_module
+    model = AutoModel.from_pretrained(model_name).encoder
+    tokenizer = AutoTokenizer.from_pretrained(model_name)
+    add_special_tokens(model, tokenizer, ['<m>', '</m>'])
+
+    print(len(train_pairs))
+    print("Train pos labels", np.sum(train_labels))
+    print("Train neg labels", sum(1 - np.array(train_labels)))
+    print(len(dev_pairs))
+    print("Dev pos labels", np.sum(dev_labels))
+    print("Dev neg labels", sum(1 - np.array(dev_labels)))
+
+    optimizer = AdamW(model.parameters(), lr=1e-5)
+
+    for epoch in range(epochs):
+
+        # Training step
+        total_loss = 0
+        model.train()
+        for batch in tqdm(train_loader):
+            batch_inputs = [example for example in batch[0]]
+            batch_labels = [example for example in batch[1]]
+
+            # Tokenize inputs and labels separately
+            input_encodings = tokenizer(batch_inputs, return_tensors="pt", padding=True, truncation=True)
+            label_encodings = tokenizer(batch_labels, return_tensors="pt", padding=True, truncation=True)
+
+            # Move inputs and labels to the appropriate device
+            input_ids = input_encodings['input_ids'].to(device)
+            labels = label_encodings['input_ids'].to(device)
+
+            optimizer.zero_grad()
+            outputs = model(input_ids=input_ids, labels=labels)
+            loss = outputs.loss
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {total_loss / len(train_loader)}")
+
+        # Validation step - ECR
+        total_loss = 0
+        model.eval()  # Set model to evaluation mode
+        with torch.no_grad():
+            all_preds = []
+            all_labels = []
+            for batch in tqdm(dev_ecr_loader):
+                batch_inputs = [example for example in batch[0]]
+                batch_labels = [example for example in batch[1]]
+
+                input_encodings = tokenizer(batch_inputs, return_tensors="pt", padding=True, truncation=True)
+                label_encodings = tokenizer(batch_labels, return_tensors="pt", padding=True, truncation=True)
+
+                input_ids = input_encodings['input_ids'].to(device)
+                labels = label_encodings['input_ids'].to(device)
+
+                outputs = model(input_ids=input_ids, labels=labels)
+                total_loss += outputs.loss.item()
+                logits = outputs.logits
+                preds = logits[:, 0, coref_token] > logits[:, 0, nocoref_token]
+
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
+
+        binary_labels = []
+
+        for label in all_labels:
+            if label[0] == coref_token:
+                binary_labels.append(1)  # positive label
+            elif label[0] == nocoref_token:
+                binary_labels.append(0)  # negative label
+
+        precision = precision_score(binary_labels, all_preds)
+        recall = recall_score(binary_labels, all_preds)
+        f1 = f1_score(binary_labels, all_preds)
+
+        print(
+            f"Validation Loss (ECR): {total_loss / len(dev_ecr_loader)}, Precision: {precision}, Recall: {recall}, F1: {f1}")
+
+        # Validation step - Summarization
+        total_dev_summ_loss = 0
+
+        predicted_summaries = []
+        true_summaries = []
+
+        for batch in tqdm(dev_summ_loader):
+            batch_inputs = [example for example in batch['document']]
+            batch_labels = [example for example in batch['summary']]
+
+            # Tokenize inputs and labels separately
+            input_encodings = tokenizer(batch_inputs, return_tensors="pt", padding=True, truncation=True)
+            label_encodings = tokenizer(batch_labels, return_tensors="pt", padding=True, truncation=True)
+
+            # Move inputs and labels to the appropriate device
+            input_ids = input_encodings['input_ids'].to(device)
+            labels = label_encodings['input_ids'].to(device)
+
+            with torch.no_grad():
+                outputs = model(input_ids=input_ids, labels=labels)
+                loss = outputs.loss
+                total_dev_summ_loss += loss.item()
+
+                predicted_summaries.extend(
+                    tokenizer.batch_decode([torch.argmax(logits, dim=-1) for logits in outputs.logits],
+                                           skip_special_tokens=True))
+                true_summaries.extend([tokenizer.decode(label, skip_special_tokens=True) for label in labels])
+
+        if print_rouge:
+            rouge_scores = rouge.compute(predictions=predicted_summaries, references=true_summaries, use_stemmer=True)
+
+        print(f"Validation Loss (Summarization): {total_dev_summ_loss / len(dev_summ_loader)}")
+
+        if print_rouge:
+            print(f"Rouge scores: {rouge_scores}")
+
+    model.save_pretrained(model_save_path)
 
 
 if __name__ == "__main__":
