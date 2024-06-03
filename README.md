@@ -11,7 +11,7 @@ Modeling code adapted from:
 2. [ahmeshaf/lemma_ce_coref](https://github.com/ahmeshaf/lemma_ce_coref)
 3. [Helw150/Entity-Mover-Distance](https://github.com/Helw150/Entity-Mover-Distance)
 
-Accompanying code for the ACL paper "_Making Event coreference resolution Tough Again. Metaphorically speaking_"
+Accompanying code for the ACL 2024 short paper "_Making Event coreference resolution Tough Again. Metaphorically speaking_"
 
 ## Contents
   1. [Getting Started](#getting-started)
