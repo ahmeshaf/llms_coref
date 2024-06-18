@@ -24,6 +24,7 @@ Accompanying code for the ACL 2024 short paper "_Making Event coreference resolu
   8. [Prediction](#prediction)
   9. [Error Analysis](#error-analysis)
 
+
 ## Getting Started
 - Install the required packages:
 
